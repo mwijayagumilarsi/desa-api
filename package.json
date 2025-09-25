@@ -1,0 +1,19 @@
+{
+  "name": "desa-api",
+  "version": "1.0.0",
+  "description": "API Desa dengan Firebase",
+  "main": "api/index.js",
+  "scripts": {
+    "start": "node api/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "body-parser": "^2.2.0",
+    "cloudinary": "^2.7.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.2",
+    "express": "^4.21.2",
+    "firebase-admin": "^12.0.0",
+    "multer": "^2.0.2"
+  }
+}
