@@ -14,9 +14,6 @@ dotenv.config();
 
 const app = express();
 
-// Vercel otomatis handle port
-const port = process.env.PORT || 3000;
-
 // 🔹 Konfigurasi Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
