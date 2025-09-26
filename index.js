@@ -9,7 +9,6 @@ import multer from "multer";
 import dotenv from "dotenv";
 import { google } from "googleapis";
 import fetch from "node-fetch";
-import fs from "fs";
 
 dotenv.config();
 
@@ -25,24 +24,35 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// 🔹 Konfigurasi Multer
-const upload = multer({ dest: "uploads/" });
+// 🔹 Konfigurasi Multer (gunakan memory storage)
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
+// Middleware
 app.use(bodyParser.json());
 app.use(cors());
 
-// ✅ Upload file ke Cloudinary
+// ✅ Upload file langsung dari buffer ke Cloudinary
 app.post("/upload-berkas", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).send({ error: "Tidak ada berkas yang diunggah." });
     }
 
-    const result = await cloudinary.uploader.upload(req.file.path, {
-      folder: "pelayanan_desa",
-    });
+    const streamUpload = (fileBuffer) => {
+      return new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { folder: "pelayanan_desa" },
+          (error, result) => {
+            if (result) resolve(result);
+            else reject(error);
+          }
+        );
+        stream.end(fileBuffer);
+      });
+    };
 
-    fs.unlinkSync(req.file.path);
+    const result = await streamUpload(req.file.buffer);
 
     return res.status(200).send({ url: result.secure_url });
   } catch (error) {
