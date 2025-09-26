@@ -2,7 +2,8 @@
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
-import db from "../firebase.js";
+import { db } from "../firebase.js"; // << perhatikan { }
+
 
 import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
