@@ -1,4 +1,4 @@
-// desa-api/firebase.js
+// firebase.js
 import admin from "firebase-admin";
 
 if (!admin.apps.length) {
@@ -8,9 +8,8 @@ if (!admin.apps.length) {
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
       privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
     }),
-    databaseURL: `https://${process.env.FIREBASE_PROJECT_ID}.firebaseio.com`,
   });
 }
 
-// Named export
 export const db = admin.firestore();
+export const fcm = admin.messaging(); // ini untuk push notification

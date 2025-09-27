@@ -114,5 +114,36 @@ app.post("/send-notif", async (req, res) => {
   }
 });
 
+// ✅ Hapus file di Cloudinary
+app.post("/delete-berkas", async (req, res) => {
+  try {
+    const { fileUrl } = req.body;
+
+    if (!fileUrl) {
+      return res.status(400).send({ error: "fileUrl diperlukan." });
+    }
+
+    // Ambil public_id dari URL Cloudinary
+    // Contoh URL: https://res.cloudinary.com/xxxx/image/upload/v1691234567/pelayanan_desa/namafile_abc123.jpg
+    const parts = fileUrl.split("/");
+    const fileName = parts.pop(); // ambil namafile.jpg
+    const folderName = parts.pop(); // ambil nama folder (pelayanan_desa)
+    const publicId = `${folderName}/${fileName.split(".")[0]}`; // hasil: pelayanan_desa/namafile_abc123
+
+    // Hapus file dari Cloudinary
+    const result = await cloudinary.uploader.destroy(publicId);
+
+    if (result.result === "ok") {
+      return res.status(200).send({ success: true, message: "✅ File berhasil dihapus", publicId });
+    } else {
+      return res.status(500).send({ success: false, message: "❌ Gagal hapus file", result });
+    }
+  } catch (error) {
+    console.error("❌ Error hapus berkas:", error);
+    return res.status(500).send({ error: "Gagal menghapus berkas." });
+  }
+});
+
+
 // ✅ Vercel: jangan pakai app.listen
 export default app;
