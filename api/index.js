@@ -1,8 +1,8 @@
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
-// ❗️ PUSTAKA IMAGE PROCESSING BARU
-import sharp from "sharp"; 
+// ❗️ PUSTAKA IMAGE PROCESSING BARU: Mengganti sharp dengan jimp
+import Jimp from "jimp"; 
 // PUSTAKA FILE DAN ZIP
 import path from "path";
 import archiver from "archiver"; 
@@ -148,55 +148,36 @@ app.post("/delete-berkas", async (req, res) => {
 });
 
 // ----------------------------------------------------------------------
-// 🛠️ FUNGSI BANTUAN SHARP: Membuat lapisan teks SVG (PERBAIKAN FONT ke-4: Helvetica/Encoding)
+// 🛠️ FUNGSI BANTUAN JIM: Membuat lapisan teks
 // ----------------------------------------------------------------------
-const createSvgOverlay = (text, width, height, fileIndex, totalFiles) => {
-    const lines = text.split('\n');
-    
-    // Penyesuaian ukuran teks dan padding (TETAP)
-    const fontSize = Math.max(24, Math.floor(width / 45)); 
-    const padding = Math.max(20, Math.floor(width / 60)); 
-    const lineHeight = fontSize * 1.6; 
-    
-    // Kotak latar belakang (TETAP)
-    const textHeight = (lines.length + 1) * lineHeight; 
-    const backgroundHeight = textHeight + (2 * padding) + (textHeight * 0.5);
-    const backgroundY = height - backgroundHeight;
-    
-    // 🔑 PERUBAHAN FONT KRITIS: Coba Helvetica (Font PostScript yang sering tersedia)
-    const safeFontFamily = 'Helvetica, Arial, sans-serif'; 
 
-    let svgTextContent = '';
-    
-    // Baris judul (FOTO KE-X/Y)
-    const titleLine = `FOTO KE-${fileIndex}/${totalFiles}`;
-    const titleYPos = backgroundY + padding + (fontSize * 1.0); 
-    // Teks Kuning Tebal
-    // Tambahkan xml:space="preserve"
-    svgTextContent += `<text x="${padding}" y="${titleYPos}" fill="#FFEB3B" font-size="${fontSize + 4}px" font-weight="900" font-family="${safeFontFamily}" xml:space="preserve">${titleLine}</text>`; 
-    
-    // Baris metadata laporan
-    lines.forEach((line, index) => {
-        const yPos = titleYPos + (lineHeight * (index + 1)); 
-        // Teks Putih
-        // Tambahkan xml:space="preserve"
-        svgTextContent += `<text x="${padding}" y="${yPos}" fill="white" font-size="${fontSize}px" font-weight="normal" font-family="${safeFontFamily}" xml:space="preserve">${line}</text>`;
-    });
+// Fungsi untuk membungkus teks (Text Wrapping) dalam Jimp
+// Jimp tidak memiliki fitur text wrapping otomatis
+const wrapText = (font, text, maxWidth) => {
+    const words = text.split(' ');
+    let lines = [];
+    let currentLine = '';
 
-    // 🔑 Tambahkan encoding UTF-8 di header SVG
-    const svg = `<?xml version="1.0" encoding="UTF-8"?>
-        <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-            <!-- Latar belakang semi-transparan hitam -->
-            <rect x="0" y="${backgroundY}" width="${width}" height="${backgroundHeight}" fill="rgba(0, 0, 0, 0.8)" />
-            <!-- Konten Teks -->
-            ${svgTextContent}
-        </svg>
-    `;
+    for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        const prospectiveLine = currentLine === '' ? word : currentLine + ' ' + word;
+        
+        const textWidth = Jimp.measureText(font, prospectiveLine);
 
-    return Buffer.from(svg, 'utf8'); // Pastikan buffer dibuat dengan encoding UTF-8
+        if (textWidth <= maxWidth) {
+            currentLine = prospectiveLine;
+        } else {
+            lines.push(currentLine);
+            currentLine = word;
+        }
+    }
+    if (currentLine !== '') {
+        lines.push(currentLine);
+    }
+    return lines;
 };
 
-// 🟢 ENDPOINT EKSPOR LAPORAN BULANAN (IMPLEMENTASI SHARP)
+// 🟢 ENDPOINT EKSPOR LAPORAN BULANAN (IMPLEMENTASI JIMP)
 app.post("/export-laporan-bulanan", async (req, res) => {
     const { bulan, tahun } = req.body;
 
@@ -236,6 +217,11 @@ app.post("/export-laporan-bulanan", async (req, res) => {
         });
 
         archive.pipe(res);
+        
+        // 🔑 JIMP: Muat font bawaan yang terjamin bekerja (White 32px)
+        const font = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
+        const fontTitle = await Jimp.loadFont(Jimp.FONT_SANS_64_YELLOW);
+        const lineHeight = Jimp.measureTextHeight(font, 'Test', 1000); // Estimasi tinggi baris
 
         // 4. Proses Setiap Laporan
         for (const doc of snapshot.docs) {
@@ -246,18 +232,17 @@ app.post("/export-laporan-bulanan", async (req, res) => {
             const folderName = `${docId}_${safePemohonName}`;
             const fotoList = data.dokumentasi_foto || [];
 
-            // Buat string metadata utuh (dipisah baris)
+            // Buat string metadata utuh (diperlukan untuk Jimp)
             const tanggalFormatted = data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleString('id-ID', {
                 day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
             }) : 'N/A';
             
             const reportMetadata = 
-                `ID Laporan: ${docId}` +
-                `\nTanggal: ${tanggalFormatted}` +
-                `\nPemohon: ${data.nama_pemohon || 'N/A'}` +
-                `\nDriver: ${data.nama_driver || 'N/A'}` +
-                `\nInstansi: ${data.instansi_rujukan || 'N/A'}` +
-                `\nAlamat: ${data.alamat_pemohon || 'N/A'}`;
+                `Tanggal: ${tanggalFormatted}\n` +
+                `Pemohon: ${data.nama_pemohon || 'N/A'}\n` +
+                `Driver: ${data.nama_driver || 'N/A'}\n` +
+                `Instansi: ${data.instansi_rujukan || 'N/A'}\n` +
+                `Alamat: ${data.alamat_pemohon || 'N/A'}`;
 
             // 5. Unduh dan Tambahkan Foto DENGAN KETERANGAN TERTANAM
             for (let i = 0; i < fotoList.length; i++) {
@@ -270,32 +255,55 @@ app.post("/export-laporan-bulanan", async (req, res) => {
                         const fileIndex = i + 1;
                         const fileName = `foto_${fileIndex}${extension}`;
                         
-                        // 🔑 SHARP: Dapatkan dimensi gambar awal
-                        const image = sharp(fotoBuffer);
-                        const metadata = await image.metadata();
-                        const { width, height } = metadata;
+                        // 🔑 JIMP: Baca gambar dari buffer
+                        const image = await Jimp.read(fotoBuffer);
+                        const { width, height } = image.bitmap;
+                        
+                        const annotationText = reportMetadata.replace(/\n/g, ' | ');
+                        const titleLine = `FOTO KE-${fileIndex}/${fotoList.length} | ID: ${docId}`;
 
-                        if (width && height) {
-                            // 🔑 SHARP: Buat lapisan SVG untuk anotasi teks
-                            const svgOverlayBuffer = createSvgOverlay(
-                                reportMetadata, 
-                                width, 
-                                height, 
-                                fileIndex, 
-                                fotoList.length
-                            );
+                        // --- Hitung Posisi Teks ---
+                        const padding = 40;
+                        const maxWidth = width - (2 * padding);
+                        
+                        // Gabungkan semua teks menjadi satu string untuk diukur
+                        const fullText = titleLine + '\n' + annotationText.replace(/ \| /g, '\n');
+                        const wrappedLines = wrapText(font, fullText, maxWidth);
+                        
+                        const totalTextHeight = wrappedLines.length * lineHeight;
+                        const backgroundHeight = totalTextHeight + (2 * padding) + 20; // Tambah padding
 
-                            // 🔑 SHARP: Gabungkan SVG ke gambar utama
-                            fotoBuffer = await image
-                                .composite([{
-                                    input: svgOverlayBuffer,
-                                    left: 0,
-                                    top: 0
-                                }])
-                                .jpeg({ quality: 90 }) 
-                                .toBuffer();
-                        }
+                        const backgroundY = height - backgroundHeight;
+                        let textY = backgroundY + padding;
 
+                        // 🔑 JIMP: Buat lapisan background hitam semi-transparan
+                        const background = new Jimp(width, backgroundHeight, 0x000000B2); // Hitam 70% opacity
+                        image.composite(background, 0, backgroundY);
+
+                        // 🔑 JIMP: Tulis Teks (Judul)
+                        Jimp.print(
+                            image,
+                            fontTitle, // Gunakan font yang lebih besar/kuning
+                            padding,
+                            textY,
+                            { text: titleLine, alignmentX: Jimp.HORIZ_ALIGN_LEFT },
+                            maxWidth
+                        );
+                        textY += Jimp.measureTextHeight(fontTitle, titleLine, maxWidth); 
+                        
+                        // 🔑 JIMP: Tulis Teks (Metadata)
+                        Jimp.print(
+                            image,
+                            font, 
+                            padding,
+                            textY,
+                            { text: annotationText.replace(/ \| /g, '\n'), alignmentX: Jimp.HORIZ_ALIGN_LEFT },
+                            maxWidth
+                        );
+                        
+                        // Dapatkan buffer gambar hasil anotasi
+                        fotoBuffer = await image.getBufferAsync(Jimp.MIME_JPEG);
+                        
                         // Tambahkan foto (yang sudah dianotasi) ke dalam ZIP
                         archive.append(fotoBuffer, { name: path.join(folderName, fileName) });
                         
@@ -304,6 +312,8 @@ app.post("/export-laporan-bulanan", async (req, res) => {
                     }
                 } catch (e) {
                     console.error(`Error saat fetching/annotating foto ${fotoUrl}:`, e);
+                    // Jika Jimp gagal (misalnya karena format yang tidak didukung), tetap tambahkan file asli
+                    archive.append(fotoBuffer, { name: path.join(folderName, `original_${fileIndex}${extension}`) });
                 }
             }
         }
