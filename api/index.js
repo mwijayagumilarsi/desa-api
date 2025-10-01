@@ -148,7 +148,7 @@ app.post("/delete-berkas", async (req, res) => {
 });
 
 // ----------------------------------------------------------------------
-// 🛠️ FUNGSI BANTUAN SHARP: Membuat lapisan teks SVG (PERBAIKAN FONT ke-3: Monospace)
+// 🛠️ FUNGSI BANTUAN SHARP: Membuat lapisan teks SVG (PERBAIKAN FONT ke-4: Helvetica/Encoding)
 // ----------------------------------------------------------------------
 const createSvgOverlay = (text, width, height, fileIndex, totalFiles) => {
     const lines = text.split('\n');
@@ -163,8 +163,8 @@ const createSvgOverlay = (text, width, height, fileIndex, totalFiles) => {
     const backgroundHeight = textHeight + (2 * padding) + (textHeight * 0.5);
     const backgroundY = height - backgroundHeight;
     
-    // 🔑 PERUBAHAN FONT KRITIS: Menggunakan Monospace sebagai fallback terbaik
-    const safeFontFamily = 'monospace'; 
+    // 🔑 PERUBAHAN FONT KRITIS: Coba Helvetica (Font PostScript yang sering tersedia)
+    const safeFontFamily = 'Helvetica, Arial, sans-serif'; 
 
     let svgTextContent = '';
     
@@ -172,16 +172,19 @@ const createSvgOverlay = (text, width, height, fileIndex, totalFiles) => {
     const titleLine = `FOTO KE-${fileIndex}/${totalFiles}`;
     const titleYPos = backgroundY + padding + (fontSize * 1.0); 
     // Teks Kuning Tebal
-    svgTextContent += `<text x="${padding}" y="${titleYPos}" fill="#FFEB3B" font-size="${fontSize + 4}px" font-weight="900" font-family="${safeFontFamily}">${titleLine}</text>`; 
+    // Tambahkan xml:space="preserve"
+    svgTextContent += `<text x="${padding}" y="${titleYPos}" fill="#FFEB3B" font-size="${fontSize + 4}px" font-weight="900" font-family="${safeFontFamily}" xml:space="preserve">${titleLine}</text>`; 
     
     // Baris metadata laporan
     lines.forEach((line, index) => {
         const yPos = titleYPos + (lineHeight * (index + 1)); 
         // Teks Putih
-        svgTextContent += `<text x="${padding}" y="${yPos}" fill="white" font-size="${fontSize}px" font-weight="normal" font-family="${safeFontFamily}">${line}</text>`;
+        // Tambahkan xml:space="preserve"
+        svgTextContent += `<text x="${padding}" y="${yPos}" fill="white" font-size="${fontSize}px" font-weight="normal" font-family="${safeFontFamily}" xml:space="preserve">${line}</text>`;
     });
 
-    const svg = `
+    // 🔑 Tambahkan encoding UTF-8 di header SVG
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>
         <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
             <!-- Latar belakang semi-transparan hitam -->
             <rect x="0" y="${backgroundY}" width="${width}" height="${backgroundHeight}" fill="rgba(0, 0, 0, 0.8)" />
@@ -190,7 +193,7 @@ const createSvgOverlay = (text, width, height, fileIndex, totalFiles) => {
         </svg>
     `;
 
-    return Buffer.from(svg);
+    return Buffer.from(svg, 'utf8'); // Pastikan buffer dibuat dengan encoding UTF-8
 };
 
 // 🟢 ENDPOINT EKSPOR LAPORAN BULANAN (IMPLEMENTASI SHARP)
