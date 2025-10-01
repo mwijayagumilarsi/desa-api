@@ -2,13 +2,11 @@
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
-// ❗️ TAMBAHKAN fs dan path
+// ❗️ PENTING: Pustaka untuk operasi file, ZIP, dan Firebase Admin
 import fs from "fs";
 import path from "path";
-// ❗️ TAMBAHKAN ARCHIVER
-import archiver from "archiver";
-// PENTING: Pastikan ini mengimpor instance Firestore dan admin yang benar
-import { db } from "./firebase.js"; 
+import archiver from "archiver"; 
+import { db } from "./firebase.js"; // Firestore instance
 import admin from 'firebase-admin'; 
 const Timestamp = admin.firestore.Timestamp; 
 
@@ -40,31 +38,32 @@ app.use(cors());
 
 // ✅ Endpoint /upload-berkas (TETAP)
 app.post("/upload-berkas", upload.single("file"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).send({ error: "Tidak ada berkas yang diunggah." });
-    }
+  // ... (kode /upload-berkas tetap)
+    try {
+        if (!req.file) {
+            return res.status(400).send({ error: "Tidak ada berkas yang diunggah." });
+        }
 
-    const streamUpload = (fileBuffer) => {
-      return new Promise((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_stream(
-          { folder: "pelayanan_desa" },
-          (error, result) => {
-            if (result) resolve(result);
-            else reject(error);
-          }
-        );
-        stream.end(fileBuffer);
-      });
-    };
+        const streamUpload = (fileBuffer) => {
+            return new Promise((resolve, reject) => {
+                const stream = cloudinary.uploader.upload_stream(
+                    { folder: "pelayanan_desa" },
+                    (error, result) => {
+                        if (result) resolve(result);
+                        else reject(error);
+                    }
+                );
+                stream.end(fileBuffer);
+            });
+        };
 
-    const result = await streamUpload(req.file.buffer);
+        const result = await streamUpload(req.file.buffer);
 
-    return res.status(200).send({ url: result.secure_url });
-  } catch (error) {
-    console.error("❌ Error unggah berkas:", error);
-    return res.status(500).send({ error: "Gagal mengunggah berkas." });
-  }
+        return res.status(200).send({ url: result.secure_url });
+    } catch (error) {
+        console.error("❌ Error unggah berkas:", error);
+        return res.status(500).send({ error: "Gagal mengunggah berkas." });
+    }
 });
 
 // ✅ Google Auth untuk FCM v1 (TETAP)
@@ -79,76 +78,76 @@ const auth = new google.auth.GoogleAuth({
 
 // ✅ Endpoint kirim notifikasi (TETAP)
 app.post("/send-notif", async (req, res) => {
-  const { token, title, body } = req.body;
+  // ... (kode /send-notif tetap)
+    const { token, title, body } = req.body;
 
-  if (!token || !title || !body) {
-    return res.status(400).send({ error: "token, title, and body are required." });
-  }
+    if (!token || !title || !body) {
+        return res.status(400).send({ error: "token, title, and body are required." });
+    }
 
-  try {
-    const client = await auth.getClient();
-    const accessToken = await client.getAccessToken();
+    try {
+        const client = await auth.getClient();
+        const accessToken = await client.getAccessToken();
 
-    const message = {
-      message: {
-        token,
-        notification: { title, body },
-      },
-    };
+        const message = {
+            message: {
+                token,
+                notification: { title, body },
+            },
+        };
 
-    const response = await fetch(
-      `https://fcm.googleapis.com/v1/projects/${process.env.FIREBASE_PROJECT_ID}/messages:send`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken.token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(message),
-      }
-    );
+        const response = await fetch(
+            `https://fcm.googleapis.com/v1/projects/${process.env.FIREBASE_PROJECT_ID}/messages:send`,
+            {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${accessToken.token}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(message),
+            }
+        );
 
-    const data = await response.json();
+        const data = await response.json();
 
-    if (response.ok) {
-      return res.status(200).send({ success: true, message: "Notification sent.", data });
-    } else {
-      console.error("❌ Error FCM:", data);
-      return res.status(500).send({ error: "Failed to send notification.", data });
-    }
-  } catch (error) {
-    console.error("❌ Gagal kirim notifikasi:", error);
-    return res.status(500).send({ error: "Failed to send notification." });
-  }
+        if (response.ok) {
+            return res.status(200).send({ success: true, message: "Notification sent.", data });
+        } else {
+            console.error("❌ Error FCM:", data);
+            return res.status(500).send({ error: "Failed to send notification.", data });
+        }
+    } catch (error) {
+        console.error("❌ Gagal kirim notifikasi:", error);
+        return res.status(500).send({ error: "Failed to send notification." });
+    }
 });
 
 // ✅ Hapus file di Cloudinary (TETAP)
 app.post("/delete-berkas", async (req, res) => {
-  try {
-    const { fileUrl } = req.body;
+  // ... (kode /delete-berkas tetap)
+    try {
+        const { fileUrl } = req.body;
 
-    if (!fileUrl) {
-      return res.status(400).send({ error: "fileUrl diperlukan." });
-    }
+        if (!fileUrl) {
+            return res.status(400).send({ error: "fileUrl diperlukan." });
+        }
 
-    // Ambil public_id dari URL Cloudinary
-    const parts = fileUrl.split("/");
-    const fileName = parts.pop(); 
-    const folderName = parts.pop(); 
-    const publicId = `${folderName}/${fileName.split(".")[0]}`; 
+        const parts = fileUrl.split("/");
+        const fileName = parts.pop(); 
+        const folderName = parts.pop(); 
+        const publicId = `${folderName}/${fileName.split(".")[0]}`; 
 
-    // Hapus file dari Cloudinary
-    const result = await cloudinary.uploader.destroy(publicId);
+        const result = await cloudinary.uploader.destroy(publicId);
 
-    if (result.result === "ok") {
-      return res.status(200).send({ success: true, message: "✅ File berhasil dihapus", publicId });
-    } else {
-      return res.status(500).send({ success: false, message: "❌ Gagal hapus file", result });
-    }
-  } catch (error) {
-    console.error("❌ Error hapus berkas:", error);
-    return res.status(500).send({ error: "Gagal menghapus berkas." });
-  }
+        if (result.result === "ok") {
+            return res.status(200).send({ success: true, message: "✅ File berhasil dihapus", publicId });
+        } else {
+            return res.status(500).send({ success: false, message: "❌ Gagal hapus file", result });
+        }
+    } catch (error) {
+        console.error("❌ Error hapus berkas:", error);
+        return res.status(500).send({ error: "Gagal menghapus berkas." });
+    }
 });
 
 
@@ -161,7 +160,7 @@ app.post("/export-laporan-bulanan", async (req, res) => {
     }
 
     // 1. Hitung Rentang Tanggal
-    // Bulan di JS adalah 0-indexed (Januari=0), tapi dari Flutter kita kirim 1-indexed.
+    // Di JavaScript, bulan adalah 0-indexed.
     const startOfMonth = new Date(tahun, bulan - 1, 1);
     const endOfMonth = new Date(tahun, bulan, 0, 23, 59, 59, 999);
 
@@ -199,7 +198,8 @@ app.post("/export-laporan-bulanan", async (req, res) => {
         for (const doc of snapshot.docs) {
             const data = doc.data();
             const docId = doc.id;
-            // Gunakan nama pemohon untuk folder
+            
+            // Buat nama folder yang aman
             const safePemohonName = (data.nama_pemohon || 'Laporan').replace(/[^a-z0-9]/gi, '_').toLowerCase();
             const folderName = `${docId}_${safePemohonName}`;
             const fotoList = data.dokumentasi_foto || [];
@@ -231,15 +231,16 @@ app.post("/export-laporan-bulanan", async (req, res) => {
                     const fotoResponse = await fetch(fotoUrl);
                     if (fotoResponse.ok) {
                         const fotoBuffer = await fotoResponse.buffer();
-                        // Ambil ekstensi dari URL, default ke .jpg
                         const extension = path.extname(new URL(fotoUrl).pathname) || '.jpg';
                         
                         // Tambahkan foto ke dalam ZIP
                         archive.append(fotoBuffer, { name: path.join(folderName, `foto_${i + 1}${extension}`) });
                     } else {
-                        console.warn(`Gagal unduh foto: ${fotoUrl}`);
+                        // Jika gagal unduh, catat dan lanjutkan ke foto berikutnya
+                        console.warn(`Gagal unduh foto: ${fotoUrl} (Status: ${fotoResponse.status})`);
                     }
                 } catch (e) {
+                    // Jika ada error fetch, catat dan lanjutkan
                     console.error(`Error saat fetching foto ${fotoUrl}:`, e);
                 }
             }
@@ -250,9 +251,9 @@ app.post("/export-laporan-bulanan", async (req, res) => {
 
     } catch (error) {
         console.error("❌ Error ekspor laporan bulanan:", error);
-        // Pastikan response header tidak dikirim jika terjadi error di tengah jalan
+        // Pastikan response error dikirim jika headers belum terkirim
         if (!res.headersSent) {
-            return res.status(500).send({ error: "Gagal memproses ekspor ZIP." });
+            return res.status(500).send({ error: "Gagal memproses ekspor ZIP di server." });
         }
     }
 });
