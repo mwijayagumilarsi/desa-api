@@ -148,32 +148,37 @@ app.post("/delete-berkas", async (req, res) => {
 });
 
 // ----------------------------------------------------------------------
-// 🛠️ FUNGSI BANTUAN SHARP: Membuat lapisan teks SVG
+// 🛠️ FUNGSI BANTUAN SHARP: Membuat lapisan teks SVG (PERBAIKAN FONT)
 // ----------------------------------------------------------------------
 const createSvgOverlay = (text, width, height, fileIndex, totalFiles) => {
     // Memecah teks menjadi baris
     const lines = text.split('\n');
     
-    // Penyesuaian ukuran teks dan padding agar terlihat baik pada resolusi tinggi
+    // Penyesuaian ukuran teks dan padding
     const baseFontSize = 14; 
     const fontSize = Math.max(16, Math.floor(width / 70));
     const padding = Math.max(15, Math.floor(width / 80)); 
     const lineHeight = fontSize * 1.4;
-    const textHeight = (lines.length + 1) * lineHeight; // +1 untuk judul foto
+    const textHeight = (lines.length + 1) * lineHeight; 
     const backgroundHeight = textHeight + (2 * padding);
     const backgroundY = height - backgroundHeight;
+    
+    // 🔑 Terapkan font yang aman di lingkungan serverless
+    const safeFontFamily = 'sans-serif'; 
 
     let svgTextContent = '';
     
     // Baris judul (FOTO KE-X/Y)
     const titleLine = `FOTO KE-${fileIndex}/${totalFiles}`;
     const titleYPos = backgroundY + padding + (fontSize * 0.8);
-    svgTextContent += `<text x="${padding}" y="${titleYPos}" fill="#FFEB3B" font-size="${fontSize + 2}px" font-weight="900">${titleLine}</text>`; // Kuning Tebal
+    // Tambahkan font-family ke tag style
+    svgTextContent += `<text x="${padding}" y="${titleYPos}" fill="#FFEB3B" font-size="${fontSize + 2}px" font-weight="900" font-family="${safeFontFamily}">${titleLine}</text>`; 
     
     // Baris metadata laporan
     lines.forEach((line, index) => {
         const yPos = titleYPos + (lineHeight * (index + 1)); 
-        svgTextContent += `<text x="${padding}" y="${yPos}" fill="white" font-size="${fontSize}px" font-weight="normal">${line}</text>`;
+        // Tambahkan font-family ke tag style
+        svgTextContent += `<text x="${padding}" y="${yPos}" fill="white" font-size="${fontSize}px" font-weight="normal" font-family="${safeFontFamily}">${line}</text>`;
     });
 
     const svg = `
@@ -284,7 +289,7 @@ app.post("/export-laporan-bulanan", async (req, res) => {
                                     left: 0,
                                     top: 0
                                 }])
-                                .jpeg({ quality: 90 }) // Kompresi sedikit untuk menghemat ukuran file ZIP
+                                .jpeg({ quality: 90 }) 
                                 .toBuffer();
                         }
 
