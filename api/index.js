@@ -1,9 +1,9 @@
-// index.js (Backend - Node.js/Express)
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
-// ❗️ PENTING: Pustaka untuk operasi file, ZIP, dan Firebase Admin
-import fs from "fs";
+// ❗️ PUSTAKA IMAGE PROCESSING BARU
+import sharp from "sharp"; 
+// PUSTAKA FILE DAN ZIP
 import path from "path";
 import archiver from "archiver"; 
 import { db } from "./firebase.js"; // Firestore instance
@@ -38,32 +38,31 @@ app.use(cors());
 
 // ✅ Endpoint /upload-berkas (TETAP)
 app.post("/upload-berkas", upload.single("file"), async (req, res) => {
-  // ... (kode /upload-berkas tetap)
-    try {
-        if (!req.file) {
-            return res.status(400).send({ error: "Tidak ada berkas yang diunggah." });
-        }
+    try {
+        if (!req.file) {
+            return res.status(400).send({ error: "Tidak ada berkas yang diunggah." });
+        }
 
-        const streamUpload = (fileBuffer) => {
-            return new Promise((resolve, reject) => {
-                const stream = cloudinary.uploader.upload_stream(
-                    { folder: "pelayanan_desa" },
-                    (error, result) => {
-                        if (result) resolve(result);
-                        else reject(error);
-                    }
-                );
-                stream.end(fileBuffer);
-            });
-        };
+        const streamUpload = (fileBuffer) => {
+            return new Promise((resolve, reject) => {
+                const stream = cloudinary.uploader.upload_stream(
+                    { folder: "pelayanan_desa" },
+                    (error, result) => {
+                        if (result) resolve(result);
+                        else reject(error);
+                    }
+                );
+                stream.end(fileBuffer);
+            });
+        };
 
-        const result = await streamUpload(req.file.buffer);
+        const result = await streamUpload(req.file.buffer);
 
-        return res.status(200).send({ url: result.secure_url });
-    } catch (error) {
-        console.error("❌ Error unggah berkas:", error);
-        return res.status(500).send({ error: "Gagal mengunggah berkas." });
-    }
+        return res.status(200).send({ url: result.secure_url });
+    } catch (error) {
+        console.error("❌ Error unggah berkas:", error);
+        return res.status(500).send({ error: "Gagal mengunggah berkas." });
+    }
 });
 
 // ✅ Google Auth untuk FCM v1 (TETAP)
@@ -78,80 +77,118 @@ const auth = new google.auth.GoogleAuth({
 
 // ✅ Endpoint kirim notifikasi (TETAP)
 app.post("/send-notif", async (req, res) => {
-  // ... (kode /send-notif tetap)
-    const { token, title, body } = req.body;
+    const { token, title, body } = req.body;
 
-    if (!token || !title || !body) {
-        return res.status(400).send({ error: "token, title, and body are required." });
-    }
+    if (!token || !title || !body) {
+        return res.status(400).send({ error: "token, title, and body are required." });
+    }
 
-    try {
-        const client = await auth.getClient();
-        const accessToken = await client.getAccessToken();
+    try {
+        const client = await auth.getClient();
+        const accessToken = await client.getAccessToken();
 
-        const message = {
-            message: {
-                token,
-                notification: { title, body },
-            },
-        };
+        const message = {
+            message: {
+                token,
+                notification: { title, body },
+            },
+        };
 
-        const response = await fetch(
-            `https://fcm.googleapis.com/v1/projects/${process.env.FIREBASE_PROJECT_ID}/messages:send`,
-            {
-                method: "POST",
-                headers: {
-                    Authorization: `Bearer ${accessToken.token}`,
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(message),
-            }
-        );
+        const response = await fetch(
+            `https://fcm.googleapis.com/v1/projects/${process.env.FIREBASE_PROJECT_ID}/messages:send`,
+            {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${accessToken.token}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(message),
+            }
+        );
 
-        const data = await response.json();
+        const data = await response.json();
 
-        if (response.ok) {
-            return res.status(200).send({ success: true, message: "Notification sent.", data });
-        } else {
-            console.error("❌ Error FCM:", data);
-            return res.status(500).send({ error: "Failed to send notification.", data });
-        }
-    } catch (error) {
-        console.error("❌ Gagal kirim notifikasi:", error);
-        return res.status(500).send({ error: "Failed to send notification." });
-    }
+        if (response.ok) {
+            return res.status(200).send({ success: true, message: "Notification sent.", data });
+        } else {
+            console.error("❌ Error FCM:", data);
+            return res.status(500).send({ error: "Failed to send notification.", data });
+        }
+    } catch (error) {
+        console.error("❌ Gagal kirim notifikasi:", error);
+        return res.status(500).send({ error: "Failed to send notification." });
+    }
 });
 
 // ✅ Hapus file di Cloudinary (TETAP)
 app.post("/delete-berkas", async (req, res) => {
-  // ... (kode /delete-berkas tetap)
-    try {
-        const { fileUrl } = req.body;
+    try {
+        const { fileUrl } = req.body;
 
-        if (!fileUrl) {
-            return res.status(400).send({ error: "fileUrl diperlukan." });
-        }
+        if (!fileUrl) {
+            return res.status(400).send({ error: "fileUrl diperlukan." });
+        }
 
-        const parts = fileUrl.split("/");
-        const fileName = parts.pop(); 
-        const folderName = parts.pop(); 
-        const publicId = `${folderName}/${fileName.split(".")[0]}`; 
+        const parts = fileUrl.split("/");
+        const fileName = parts.pop(); 
+        const folderName = parts.pop(); 
+        const publicId = `${folderName}/${fileName.split(".")[0]}`; 
 
-        const result = await cloudinary.uploader.destroy(publicId);
+        const result = await cloudinary.uploader.destroy(publicId);
 
-        if (result.result === "ok") {
-            return res.status(200).send({ success: true, message: "✅ File berhasil dihapus", publicId });
-        } else {
-            return res.status(500).send({ success: false, message: "❌ Gagal hapus file", result });
-        }
-    } catch (error) {
-        console.error("❌ Error hapus berkas:", error);
-        return res.status(500).send({ error: "Gagal menghapus berkas." });
-    }
+        if (result.result === "ok") {
+            return res.status(200).send({ success: true, message: "✅ File berhasil dihapus", publicId });
+        } else {
+            return res.status(500).send({ success: false, message: "❌ Gagal hapus file", result });
+        }
+    } catch (error) {
+        console.error("❌ Error hapus berkas:", error);
+        return res.status(500).send({ error: "Gagal menghapus berkas." });
+    }
 });
 
+// ----------------------------------------------------------------------
+// 🛠️ FUNGSI BANTUAN SHARP: Membuat lapisan teks SVG
+// ----------------------------------------------------------------------
+const createSvgOverlay = (text, width, height, fileIndex, totalFiles) => {
+    // Memecah teks menjadi baris
+    const lines = text.split('\n');
+    
+    // Penyesuaian ukuran teks dan padding agar terlihat baik pada resolusi tinggi
+    const baseFontSize = 14; 
+    const fontSize = Math.max(16, Math.floor(width / 70));
+    const padding = Math.max(15, Math.floor(width / 80)); 
+    const lineHeight = fontSize * 1.4;
+    const textHeight = (lines.length + 1) * lineHeight; // +1 untuk judul foto
+    const backgroundHeight = textHeight + (2 * padding);
+    const backgroundY = height - backgroundHeight;
 
-// 🟢 ENDPOINT BARU: EKSPOR LAPORAN BULANAN KE ZIP
+    let svgTextContent = '';
+    
+    // Baris judul (FOTO KE-X/Y)
+    const titleLine = `FOTO KE-${fileIndex}/${totalFiles}`;
+    const titleYPos = backgroundY + padding + (fontSize * 0.8);
+    svgTextContent += `<text x="${padding}" y="${titleYPos}" fill="#FFEB3B" font-size="${fontSize + 2}px" font-weight="900">${titleLine}</text>`; // Kuning Tebal
+    
+    // Baris metadata laporan
+    lines.forEach((line, index) => {
+        const yPos = titleYPos + (lineHeight * (index + 1)); 
+        svgTextContent += `<text x="${padding}" y="${yPos}" fill="white" font-size="${fontSize}px" font-weight="normal">${line}</text>`;
+    });
+
+    const svg = `
+        <svg width="${width}" height="${height}">
+            <!-- Latar belakang semi-transparan hitam -->
+            <rect x="0" y="${backgroundY}" width="${width}" height="${backgroundHeight}" fill="rgba(0, 0, 0, 0.7)" />
+            <!-- Konten Teks -->
+            ${svgTextContent}
+        </svg>
+    `;
+
+    return Buffer.from(svg);
+};
+
+// 🟢 ENDPOINT EKSPOR LAPORAN BULANAN (IMPLEMENTASI SHARP)
 app.post("/export-laporan-bulanan", async (req, res) => {
     const { bulan, tahun } = req.body;
 
@@ -160,7 +197,6 @@ app.post("/export-laporan-bulanan", async (req, res) => {
     }
 
     // 1. Hitung Rentang Tanggal
-    // Di JavaScript, bulan adalah 0-indexed.
     const startOfMonth = new Date(tahun, bulan - 1, 1);
     const endOfMonth = new Date(tahun, bulan, 0, 23, 59, 59, 999);
 
@@ -191,7 +227,6 @@ app.post("/export-laporan-bulanan", async (req, res) => {
             zlib: { level: 9 } 
         });
 
-        // Pipe archiver output ke response HTTP
         archive.pipe(res);
 
         // 4. Proses Setiap Laporan
@@ -199,59 +234,77 @@ app.post("/export-laporan-bulanan", async (req, res) => {
             const data = doc.data();
             const docId = doc.id;
             
-            // Buat nama folder yang aman
             const safePemohonName = (data.nama_pemohon || 'Laporan').replace(/[^a-z0-9]/gi, '_').toLowerCase();
             const folderName = `${docId}_${safePemohonName}`;
             const fotoList = data.dokumentasi_foto || [];
 
-            // a. Buat File Keterangan
+            // Buat string metadata utuh (dipisah baris)
             const tanggalFormatted = data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleString('id-ID', {
                 day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
             }) : 'N/A';
             
-            let keterangan = `======================================\n`;
-            keterangan += `LAPORAN PEKERJAAN - ID: ${docId}\n`;
-            keterangan += `======================================\n`;
-            keterangan += `Tanggal Pengerjaan: ${tanggalFormatted}\n`;
-            keterangan += `Pemohon: ${data.nama_pemohon || 'N/A'}\n`;
-            keterangan += `Driver: ${data.nama_driver || 'N/A'}\n`;
-            keterangan += `Instansi Rujukan: ${data.instansi_rujukan || 'N/A'}\n`;
-            keterangan += `Alamat: ${data.alamat_pemohon || 'N/A'}\n`;
-            keterangan += `Jumlah Foto: ${fotoList.length}\n`;
-            keterangan += `======================================`;
+            const reportMetadata = 
+                `ID Laporan: ${docId}` +
+                `\nTanggal: ${tanggalFormatted}` +
+                `\nPemohon: ${data.nama_pemohon || 'N/A'}` +
+                `\nDriver: ${data.nama_driver || 'N/A'}` +
+                `\nInstansi: ${data.instansi_rujukan || 'N/A'}` +
+                `\nAlamat: ${data.alamat_pemohon || 'N/A'}`;
 
-            // Tambahkan file keterangan ke dalam ZIP
-            archive.append(keterangan, { name: path.join(folderName, 'keterangan_laporan.txt') });
-
-
-            // b. Unduh dan Tambahkan Foto
+            // 5. Unduh dan Tambahkan Foto DENGAN KETERANGAN TERTANAM
             for (let i = 0; i < fotoList.length; i++) {
                 const fotoUrl = fotoList[i];
                 try {
                     const fotoResponse = await fetch(fotoUrl);
                     if (fotoResponse.ok) {
-                        const fotoBuffer = await fotoResponse.buffer();
+                        let fotoBuffer = await fotoResponse.buffer(); 
                         const extension = path.extname(new URL(fotoUrl).pathname) || '.jpg';
+                        const fileIndex = i + 1;
+                        const fileName = `foto_${fileIndex}${extension}`;
                         
-                        // Tambahkan foto ke dalam ZIP
-                        archive.append(fotoBuffer, { name: path.join(folderName, `foto_${i + 1}${extension}`) });
+                        // 🔑 SHARP: Dapatkan dimensi gambar awal
+                        const image = sharp(fotoBuffer);
+                        const metadata = await image.metadata();
+                        const { width, height } = metadata;
+
+                        if (width && height) {
+                            // 🔑 SHARP: Buat lapisan SVG untuk anotasi teks
+                            const svgOverlayBuffer = createSvgOverlay(
+                                reportMetadata, 
+                                width, 
+                                height, 
+                                fileIndex, 
+                                fotoList.length
+                            );
+
+                            // 🔑 SHARP: Gabungkan SVG ke gambar utama
+                            fotoBuffer = await image
+                                .composite([{
+                                    input: svgOverlayBuffer,
+                                    left: 0,
+                                    top: 0
+                                }])
+                                .jpeg({ quality: 90 }) // Kompresi sedikit untuk menghemat ukuran file ZIP
+                                .toBuffer();
+                        }
+
+                        // Tambahkan foto (yang sudah dianotasi) ke dalam ZIP
+                        archive.append(fotoBuffer, { name: path.join(folderName, fileName) });
+                        
                     } else {
-                        // Jika gagal unduh, catat dan lanjutkan ke foto berikutnya
                         console.warn(`Gagal unduh foto: ${fotoUrl} (Status: ${fotoResponse.status})`);
                     }
                 } catch (e) {
-                    // Jika ada error fetch, catat dan lanjutkan
-                    console.error(`Error saat fetching foto ${fotoUrl}:`, e);
+                    console.error(`Error saat fetching/annotating foto ${fotoUrl}:`, e);
                 }
             }
         }
 
-        // 5. Finalisasi ZIP
+        // 6. Finalisasi ZIP
         await archive.finalize();
 
     } catch (error) {
         console.error("❌ Error ekspor laporan bulanan:", error);
-        // Pastikan response error dikirim jika headers belum terkirim
         if (!res.headersSent) {
             return res.status(500).send({ error: "Gagal memproses ekspor ZIP di server." });
         }
