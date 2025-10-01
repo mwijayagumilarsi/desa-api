@@ -1,7 +1,7 @@
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
-// ❗️ KEMBALI MENGGUNAKAN SHARP
+// ❗️ KEMBALI MENGGUNAKAN SHARP (Library yang lebih efisien)
 import sharp from "sharp"; 
 // PUSTAKA FILE DAN ZIP
 import path from "path";
@@ -163,8 +163,8 @@ const createSvgOverlay = (text, width, height, fileIndex, totalFiles) => {
     const backgroundHeight = textHeight + (2 * padding) + (textHeight * 0.5);
     const backgroundY = height - backgroundHeight;
     
-    // 🔑 PERUBAHAN FONT KRITIS: Menggunakan 3 font sistem umum yang ada di Linux
-    const safeFontFamily = 'DejaVu Sans, Arial, Helvetica'; 
+    // 🔑 PERBAIKAN FONT TERAKHIR: Font Fallback Terluas di Linux
+    const safeFontFamily = 'DejaVu Sans, Arial, Helvetica, sans-serif, monospace'; 
 
     let svgTextContent = '';
     
