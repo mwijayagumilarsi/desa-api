@@ -148,43 +148,45 @@ app.post("/delete-berkas", async (req, res) => {
 });
 
 // ----------------------------------------------------------------------
-// 🛠️ FUNGSI BANTUAN SHARP: Membuat lapisan teks SVG (PERBAIKAN FONT)
+// 🛠️ FUNGSI BANTUAN SHARP: Membuat lapisan teks SVG (PERBAIKAN UKURAN)
 // ----------------------------------------------------------------------
 const createSvgOverlay = (text, width, height, fileIndex, totalFiles) => {
-    // Memecah teks menjadi baris
     const lines = text.split('\n');
     
     // Penyesuaian ukuran teks dan padding
-    const baseFontSize = 14; 
-    const fontSize = Math.max(16, Math.floor(width / 70));
-    const padding = Math.max(15, Math.floor(width / 80)); 
-    const lineHeight = fontSize * 1.4;
+    // Skala Font: Ditingkatkan sedikit lagi untuk visual yang lebih baik
+    const fontSize = Math.max(24, Math.floor(width / 45)); 
+    const padding = Math.max(20, Math.floor(width / 60)); // Padding diperbesar
+    const lineHeight = fontSize * 1.6; // Line height diperbesar untuk spasi antar baris
+    
+    // 🔑 PERUBAHAN UTAMA: Tambahkan ruang ekstra untuk background agar kotak lebih besar
+    const extraSpaceFactor = 0.5; // Tambahkan 50% ruang ekstra di atas dan bawah teks
     const textHeight = (lines.length + 1) * lineHeight; 
-    const backgroundHeight = textHeight + (2 * padding);
+    const backgroundHeight = textHeight + (2 * padding) + (textHeight * extraSpaceFactor);
     const backgroundY = height - backgroundHeight;
     
-    // 🔑 Terapkan font yang aman di lingkungan serverless
-    const safeFontFamily = 'sans-serif'; 
+    // 🔑 Terapkan font yang SANGAT BASIC dan universal:
+    const safeFontFamily = 'Arial, Helvetica, sans-serif'; 
 
     let svgTextContent = '';
     
     // Baris judul (FOTO KE-X/Y)
     const titleLine = `FOTO KE-${fileIndex}/${totalFiles}`;
-    const titleYPos = backgroundY + padding + (fontSize * 0.8);
-    // Tambahkan font-family ke tag style
-    svgTextContent += `<text x="${padding}" y="${titleYPos}" fill="#FFEB3B" font-size="${fontSize + 2}px" font-weight="900" font-family="${safeFontFamily}">${titleLine}</text>`; 
+    const titleYPos = backgroundY + padding + (fontSize * 1.0); // Sesuaikan posisi Y awal
+    // Teks Kuning Tebal
+    svgTextContent += `<text x="${padding}" y="${titleYPos}" fill="#FFEB3B" font-size="${fontSize + 4}px" font-weight="900" font-family="${safeFontFamily}">${titleLine}</text>`; 
     
     // Baris metadata laporan
     lines.forEach((line, index) => {
         const yPos = titleYPos + (lineHeight * (index + 1)); 
-        // Tambahkan font-family ke tag style
+        // Teks Putih
         svgTextContent += `<text x="${padding}" y="${yPos}" fill="white" font-size="${fontSize}px" font-weight="normal" font-family="${safeFontFamily}">${line}</text>`;
     });
 
     const svg = `
-        <svg width="${width}" height="${height}">
-            <!-- Latar belakang semi-transparan hitam -->
-            <rect x="0" y="${backgroundY}" width="${width}" height="${backgroundHeight}" fill="rgba(0, 0, 0, 0.7)" />
+        <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+            <!-- Latar belakang semi-transparan hitam (KOTAK LEBIH BESAR) -->
+            <rect x="0" y="${backgroundY}" width="${width}" height="${backgroundHeight}" fill="rgba(0, 0, 0, 0.8)" />
             <!-- Konten Teks -->
             ${svgTextContent}
         </svg>
