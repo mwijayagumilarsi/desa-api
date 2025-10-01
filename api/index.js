@@ -148,31 +148,29 @@ app.post("/delete-berkas", async (req, res) => {
 });
 
 // ----------------------------------------------------------------------
-// 🛠️ FUNGSI BANTUAN SHARP: Membuat lapisan teks SVG (PERBAIKAN UKURAN)
+// 🛠️ FUNGSI BANTUAN SHARP: Membuat lapisan teks SVG (PERBAIKAN FONT ke-3: Monospace)
 // ----------------------------------------------------------------------
 const createSvgOverlay = (text, width, height, fileIndex, totalFiles) => {
     const lines = text.split('\n');
     
-    // Penyesuaian ukuran teks dan padding
-    // Skala Font: Ditingkatkan sedikit lagi untuk visual yang lebih baik
+    // Penyesuaian ukuran teks dan padding (TETAP)
     const fontSize = Math.max(24, Math.floor(width / 45)); 
-    const padding = Math.max(20, Math.floor(width / 60)); // Padding diperbesar
-    const lineHeight = fontSize * 1.6; // Line height diperbesar untuk spasi antar baris
+    const padding = Math.max(20, Math.floor(width / 60)); 
+    const lineHeight = fontSize * 1.6; 
     
-    // 🔑 PERUBAHAN UTAMA: Tambahkan ruang ekstra untuk background agar kotak lebih besar
-    const extraSpaceFactor = 0.5; // Tambahkan 50% ruang ekstra di atas dan bawah teks
+    // Kotak latar belakang (TETAP)
     const textHeight = (lines.length + 1) * lineHeight; 
-    const backgroundHeight = textHeight + (2 * padding) + (textHeight * extraSpaceFactor);
+    const backgroundHeight = textHeight + (2 * padding) + (textHeight * 0.5);
     const backgroundY = height - backgroundHeight;
     
-    // 🔑 Terapkan font yang SANGAT BASIC dan universal:
-    const safeFontFamily = 'Arial, Helvetica, sans-serif'; 
+    // 🔑 PERUBAHAN FONT KRITIS: Menggunakan Monospace sebagai fallback terbaik
+    const safeFontFamily = 'monospace'; 
 
     let svgTextContent = '';
     
     // Baris judul (FOTO KE-X/Y)
     const titleLine = `FOTO KE-${fileIndex}/${totalFiles}`;
-    const titleYPos = backgroundY + padding + (fontSize * 1.0); // Sesuaikan posisi Y awal
+    const titleYPos = backgroundY + padding + (fontSize * 1.0); 
     // Teks Kuning Tebal
     svgTextContent += `<text x="${padding}" y="${titleYPos}" fill="#FFEB3B" font-size="${fontSize + 4}px" font-weight="900" font-family="${safeFontFamily}">${titleLine}</text>`; 
     
@@ -185,7 +183,7 @@ const createSvgOverlay = (text, width, height, fileIndex, totalFiles) => {
 
     const svg = `
         <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-            <!-- Latar belakang semi-transparan hitam (KOTAK LEBIH BESAR) -->
+            <!-- Latar belakang semi-transparan hitam -->
             <rect x="0" y="${backgroundY}" width="${width}" height="${backgroundHeight}" fill="rgba(0, 0, 0, 0.8)" />
             <!-- Konten Teks -->
             ${svgTextContent}
