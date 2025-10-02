@@ -31,10 +31,10 @@ const upload = multer({ storage });
 app.use(bodyParser.json());
 app.use(cors());
 
-// ----------------- Helper: Menghasilkan Transformasi Teks Cloudinary (FINAL) -----------------
+// ----------------- Helper: Menghasilkan Transformasi Teks Cloudinary (FINAL FIX) -----------------
 /**
  * Membuat string transformasi l_text yang dirantai (chained) untuk teks multi-baris.
- * Termasuk pembersihan teks ekstra untuk menghindari Error 400.
+ * Termasuk pembersihan koma (,) yang sering menyebabkan Error 400.
  * @param {string[]} lines - Array dari string teks, di mana setiap string adalah satu baris.
  * @returns {string} String transformasi Cloudinary yang dirantai (contoh: t_text/t_text)
  */
@@ -46,10 +46,11 @@ function createTextWatermarkTransformations(lines) {
   const initialX = 20; 
 
   lines.slice().reverse().forEach((text, index) => {
-    // 💡 PERBAIKAN SINTAKS 400: Bersihkan teks sebelum encode
-    // 1. Hapus karakter yang sangat bermasalah (misal: | atau ?)
-    // 2. Ganti tanda kutip tunggal ('') yang sering menyebabkan masalah encoding
-    let cleanText = text.replace(/[|?]/g, ''); 
+    // 💡 PERBAIKAN SINTAKS 400: Bersihkan Koma dan Karakter Bermasalah
+    // Ganti koma (,) dengan titik dua (:) atau karakter aman lainnya
+    // Koma adalah pemisah parameter di Cloudinary, jadi harus diganti.
+    let cleanText = text.replace(/,/g, ' '); 
+    cleanText = cleanText.replace(/[|?]/g, ''); // Hapus | dan ?
     
     // URL-encode teks yang sudah dibersihkan
     const encodedText = encodeURIComponent(cleanText).replace(/'/g, '%27'); 
