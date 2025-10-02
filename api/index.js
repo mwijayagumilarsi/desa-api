@@ -31,6 +31,46 @@ const upload = multer({ storage });
 app.use(bodyParser.json());
 app.use(cors());
 
+// ----------------- Helper: Menghasilkan Transformasi Teks Cloudinary -----------------
+/**
+ * Membuat array transformasi l_text yang dirantai (chained) untuk teks multi-baris.
+ * Setiap baris teks diperlakukan sebagai overlay terpisah.
+ * @param {string[]} lines - Array dari string teks, di mana setiap string adalah satu baris.
+ * @returns {object[]} Array transformasi Cloudinary.
+ */
+function createTextWatermarkTransformations(lines) {
+  const baseFontSize = 28;
+  const transforms = [];
+  const lineHeight = 35; // Jarak vertikal antar baris
+  const initialY = 20;  // Jarak awal dari bawah (padding)
+  const initialX = 20;  // Jarak awal dari kiri (padding)
+
+  // Iterasi secara terbalik agar baris pertama muncul di paling atas
+  lines.slice().reverse().forEach((text, index) => {
+    // URL-encode setiap baris teks
+    const encodedText = encodeURIComponent(text); 
+    
+    // Y position: Diukur dari south_west (kiri bawah). 
+    // Baris pertama (index 0 pada array terbalik) akan memiliki Y paling kecil
+    const yPosition = initialY + (index * lineHeight); 
+
+    transforms.push({
+      // Overlay teks baru: Arial 28, putih, opacity 80%
+      overlay: `l_text:Arial_${baseFontSize}_bold:${encodedText}`, 
+      gravity: 'south_west',
+      color: 'white',
+      x: initialX, 
+      y: yPosition,
+      opacity: 80,
+      crop: 'fit', // Penting untuk memastikan teks di satu baris
+      width: 700 
+    });
+  });
+  
+  // Balik urutan transformasi agar diproses dari bawah ke atas gambar
+  return transforms.reverse();
+}
+
 // ----------------- Upload berkas -----------------
 app.post("/upload-berkas", upload.single("file"), async (req, res) => {
   try {
@@ -130,6 +170,7 @@ function extractCloudinaryPublicId(url) {
     return null;
   }
 }
+
 // ----------------- Export laporan bulanan (stabil) -----------------
 app.get("/export-laporan-bulanan", async (req, res) => {
   try {
@@ -164,6 +205,21 @@ app.get("/export-laporan-bulanan", async (req, res) => {
     } catch (e) {
       console.warn("⚠️ Gagal ambil logo desa:", e.message);
     }
+    
+    // Fungsi escapeXml diperlukan jika Anda masih ingin menggunakan fallback sharp
+    function escapeXml(unsafe) {
+      return unsafe.replace(/[<>&'"]/g, function (c) {
+        switch (c) {
+          case '<': return '&lt;';
+          case '>': return '&gt;';
+          case '&': return '&amp;';
+          case "'": return '&apos;';
+          case '"': return '&quot;';
+          default: return c;
+        }
+      });
+    }
+
 
     for (const doc of snapshot.docs) {
       const data = doc.data();
@@ -171,61 +227,83 @@ app.get("/export-laporan-bulanan", async (req, res) => {
       const fotoList = data.dokumentasi_foto || [];
 
       const tanggalStr = data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleDateString("id-ID") : "-";
-      const combinedText = [
+      
+      // 🟢 Perbaikan Watermark: Buat Array Baris Teks
+      const textLines = [
         `Pemohon: ${data.nama_pemohon || "-"}`,
         `Driver: ${data.nama_driver || "-"}`,
         `Instansi: ${data.instansi_rujukan || "-"}`,
         `Alamat: ${data.alamat_pemohon || "-"}`,
         `Tanggal: ${tanggalStr}`,
-      ].join("\n");
+      ];
 
       for (const [i, fotoUrl] of fotoList.entries()) {
         try {
           const publicId = extractCloudinaryPublicId(fotoUrl);
-
           let finalBuf = null;
 
           if (publicId) {
-            // Cloudinary transform + fetch
-            const encodedText = encodeURIComponent(combinedText);
-            const transformUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/w_1280,c_scale,l_text:Arial_28:${encodedText},g_south_west,x_20,y_20,co_rgb:FFFFFF/${publicId}.jpg`;
+            // 🟢 Langkah 1: Cloudinary Transformasi Watermark Teks Multi-Baris
+            const textTransforms = createTextWatermarkTransformations(textLines);
+            
+            const transformUrl = cloudinary.url(publicId, {
+                width: 1280,
+                crop: "scale",
+                quality: 90,
+                flags: 'force_strip',
+                // Masukkan array transformasi teks yang sudah dibuat
+                transformation: textTransforms
+            });
+            
             const resp = await axios.get(transformUrl, { responseType: "arraybuffer" });
             finalBuf = Buffer.from(resp.data);
-
+            
+            // 🟢 Langkah 2: Gabungkan Logo (Jika ada) menggunakan Sharp
+            // Logika Sharp hanya digunakan untuk menambahkan logo di atas hasil Cloudinary
             if (logoBuffer) {
               finalBuf = await sharp(finalBuf)
-                .composite([{ input: logoBuffer, gravity: "southeast", blend: "over", top: 20, left: 20 }])
+                .composite([
+                    // Logo di kanan bawah
+                    { 
+                        input: logoBuffer, 
+                        gravity: "southeast", 
+                        blend: "over", 
+                        top: 20, 
+                        left: 20 
+                    }
+                ])
                 .jpeg({ quality: 90 })
                 .toBuffer();
             }
 
           } else {
-            // fallback: fetch original + overlay teks + logo
-            const response = await axios.get(fotoUrl, { responseType: "arraybuffer", timeout: 30000 });
-            const imageBuffer = Buffer.from(response.data);
+            // Fallback (jika gagal ambil publicId)
+            // Menggunakan Sharp + SVG (Jika ini bermasalah dengan font, ini akan menghasilkan kotak-kotak)
+             const response = await axios.get(fotoUrl, { responseType: "arraybuffer", timeout: 30000 });
+             const imageBuffer = Buffer.from(response.data);
 
-            const svgOverlay = `
-              <svg width="1280" height="260" xmlns="http://www.w3.org/2000/svg">
-                <style>
-                  .title { fill: white; font-size: 28px; font-family: sans-serif; font-weight: bold; }
-                </style>
-                <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.5)" />
-                <text x="20" y="40" class="title">${escapeXml(data.nama_pemohon || "-")}</text>
-                <text x="20" y="80" class="title">${escapeXml(data.nama_driver || "-")}</text>
-                <text x="20" y="120" class="title">${escapeXml(data.instansi_rujukan || "-")}</text>
-                <text x="20" y="160" class="title">${escapeXml(data.alamat_pemohon || "-")}</text>
-                <text x="20" y="200" class="title">${escapeXml(tanggalStr)}</text>
-              </svg>
-            `;
+             const svgOverlay = `
+               <svg width="1280" height="260" xmlns="http://www.w3.org/2000/svg">
+                 <style>
+                   .title { fill: white; font-size: 28px; font-family: sans-serif; font-weight: bold; }
+                 </style>
+                 <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.5)" />
+                 <text x="20" y="40" class="title">${escapeXml(data.nama_pemohon || "-")}</text>
+                 <text x="20" y="80" class="title">${escapeXml(data.nama_driver || "-")}</text>
+                 <text x="20" y="120" class="title">${escapeXml(data.instansi_rujukan || "-")}</text>
+                 <text x="20" y="160" class="title">${escapeXml(data.alamat_pemohon || "-")}</text>
+                 <text x="20" y="200" class="title">${escapeXml(tanggalStr)}</text>
+               </svg>
+             `;
 
-            const compositeArray = [{ input: Buffer.from(svgOverlay), gravity: "southwest" }];
-            if (logoBuffer) compositeArray.push({ input: logoBuffer, gravity: "southeast", blend: "over", top: 20, left: 20 });
+             const compositeArray = [{ input: Buffer.from(svgOverlay), gravity: "southwest" }];
+             if (logoBuffer) compositeArray.push({ input: logoBuffer, gravity: "southeast", blend: "over", top: 20, left: 20 });
 
-            finalBuf = await sharp(imageBuffer)
-              .resize({ width: 1280 })
-              .composite(compositeArray)
-              .jpeg({ quality: 90 })
-              .toBuffer();
+             finalBuf = await sharp(imageBuffer)
+               .resize({ width: 1280 })
+               .composite(compositeArray)
+               .jpeg({ quality: 90 })
+               .toBuffer();
           }
 
           archive.append(finalBuf, { name: `${namaFolder}/foto_${i + 1}.jpg` });
