@@ -31,9 +31,10 @@ const upload = multer({ storage });
 app.use(bodyParser.json());
 app.use(cors());
 
-// ----------------- Helper: Menghasilkan Transformasi Teks Cloudinary -----------------
+// ----------------- Helper: Menghasilkan Transformasi Teks Cloudinary (FINAL) -----------------
 /**
  * Membuat string transformasi l_text yang dirantai (chained) untuk teks multi-baris.
+ * Termasuk pembersihan teks ekstra untuk menghindari Error 400.
  * @param {string[]} lines - Array dari string teks, di mana setiap string adalah satu baris.
  * @returns {string} String transformasi Cloudinary yang dirantai (contoh: t_text/t_text)
  */
@@ -45,8 +46,13 @@ function createTextWatermarkTransformations(lines) {
   const initialX = 20; 
 
   lines.slice().reverse().forEach((text, index) => {
-    // URL-encode teks, dan ganti tanda kutip tunggal ('') yang sering menyebabkan masalah encoding
-    const encodedText = encodeURIComponent(text).replace(/'/g, '%27'); 
+    // 💡 PERBAIKAN SINTAKS 400: Bersihkan teks sebelum encode
+    // 1. Hapus karakter yang sangat bermasalah (misal: | atau ?)
+    // 2. Ganti tanda kutip tunggal ('') yang sering menyebabkan masalah encoding
+    let cleanText = text.replace(/[|?]/g, ''); 
+    
+    // URL-encode teks yang sudah dibersihkan
+    const encodedText = encodeURIComponent(cleanText).replace(/'/g, '%27'); 
     
     const yPosition = initialY + (index * lineHeight); 
 
@@ -251,7 +257,7 @@ app.get("/export-laporan-bulanan", async (req, res) => {
             // 🟢 Langkah 1: Buat string transformasi Teks Multi-Baris
             const textTransformString = createTextWatermarkTransformations(textLines);
             
-            // 💡 PERBAIKAN: Gunakan SDK Helper dengan raw_transformation
+            // Menggunakan SDK Helper dengan raw_transformation (paling stabil)
             const transformUrl = cloudinary.url(publicId, {
                 // Transformasi dasar
                 transformation: [
