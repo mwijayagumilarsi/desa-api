@@ -1,19 +1,19 @@
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
-import sharp from "sharp"; 
-import archiver from "archiver"; 
+import sharp from "sharp";
+import archiver from "archiver";
 import { db } from "./firebase.js"; // Firestore instance
-import admin from 'firebase-admin'; 
-const Timestamp = admin.firestore.Timestamp; 
+import admin from "firebase-admin";
+const Timestamp = admin.firestore.Timestamp;
 import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
 import dotenv from "dotenv";
 import { google } from "googleapis";
 import fetch from "node-fetch";
 import axios from "axios";
-import path from "path";
 import fs from "fs";
+import path from "path";
 
 dotenv.config();
 
@@ -34,10 +34,16 @@ const upload = multer({ storage });
 app.use(bodyParser.json());
 app.use(cors());
 
-// ✅ Path font Roboto
-const fontPath = path.join(process.cwd(), "fonts", "Roboto-Regular.ttf");
-console.log("📂 Font path:", fontPath);
-console.log("📂 Font exists:", fs.existsSync(fontPath));
+// ✅ Load Roboto font once (base64 embed)
+const fontPath = path.resolve("./fonts/Roboto-Regular.ttf");
+let robotoBase64 = "";
+if (fs.existsSync(fontPath)) {
+  const robotoFont = fs.readFileSync(fontPath);
+  robotoBase64 = robotoFont.toString("base64");
+  console.log("📂 Font Roboto ditemukan & siap dipakai");
+} else {
+  console.warn("⚠️ Font Roboto tidak ditemukan, fallback ke sans-serif");
+}
 
 // ✅ Upload berkas ke Cloudinary
 app.post("/upload-berkas", upload.single("file"), async (req, res) => {
@@ -72,7 +78,7 @@ const SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"];
 const auth = new google.auth.GoogleAuth({
   credentials: {
     client_email: process.env.FIREBASE_CLIENT_EMAIL,
-    private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"), 
+    private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
   },
   scopes: SCOPES,
 });
@@ -109,6 +115,7 @@ app.post("/send-notif", async (req, res) => {
     );
 
     const data = await response.json();
+
     if (response.ok) {
       return res.status(200).send({ success: true, message: "Notification sent.", data });
     } else {
@@ -125,17 +132,17 @@ app.post("/send-notif", async (req, res) => {
 app.post("/delete-berkas", async (req, res) => {
   try {
     const { fileUrl } = req.body;
-
     if (!fileUrl) {
       return res.status(400).send({ error: "fileUrl diperlukan." });
     }
 
     const parts = fileUrl.split("/");
-    const fileName = parts.pop(); 
-    const folderName = parts.pop(); 
-    const publicId = `${folderName}/${fileName.split(".")[0]}`; 
+    const fileName = parts.pop();
+    const folderName = parts.pop();
+    const publicId = `${folderName}/${fileName.split(".")[0]}`;
 
     const result = await cloudinary.uploader.destroy(publicId);
+
     if (result.result === "ok") {
       return res.status(200).send({ success: true, message: "✅ File berhasil dihapus", publicId });
     } else {
@@ -148,66 +155,70 @@ app.post("/delete-berkas", async (req, res) => {
 });
 
 // ==================== EXPORT LAPORAN BULANAN ====================
-app.get('/export-laporan-bulanan', async (req, res) => {
+app.get("/export-laporan-bulanan", async (req, res) => {
   try {
     const { bulan, tahun } = req.query;
     if (!bulan || !tahun) {
-      return res.status(400).send('Parameter bulan & tahun wajib diisi');
+      return res.status(400).send("Parameter bulan & tahun wajib diisi");
     }
 
-    const bulanInt = parseInt(bulan) - 1; 
+    const bulanInt = parseInt(bulan) - 1;
     const startDate = new Date(tahun, bulanInt, 1);
     const endDate = new Date(tahun, bulanInt + 1, 1);
 
-    // Ambil laporan dari Firestore
-    const snapshot = await db.collection('laporan_driver')
-      .where('tanggal_pengerjaan', '>=', admin.firestore.Timestamp.fromDate(startDate))
-      .where('tanggal_pengerjaan', '<', admin.firestore.Timestamp.fromDate(endDate))
+    const snapshot = await db
+      .collection("laporan_driver")
+      .where("tanggal_pengerjaan", ">=", admin.firestore.Timestamp.fromDate(startDate))
+      .where("tanggal_pengerjaan", "<", admin.firestore.Timestamp.fromDate(endDate))
       .get();
 
     if (snapshot.empty) {
-      return res.status(404).send('Tidak ada laporan di bulan ini');
+      return res.status(404).send("Tidak ada laporan di bulan ini");
     }
 
-    // Streaming ZIP
-    res.setHeader('Content-Disposition', `attachment; filename="Laporan_${bulan}_${tahun}.zip"`);
-    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader("Content-Disposition", `attachment; filename="Laporan_${bulan}_${tahun}.zip"`);
+    res.setHeader("Content-Type", "application/zip");
 
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = archiver("zip", { zlib: { level: 9 } });
     archive.pipe(res);
 
     for (const doc of snapshot.docs) {
       const data = doc.data();
-      const namaFolder = (data.nama_pemohon || 'Laporan').replace(/[^a-z0-9]/gi, '_').substring(0, 50);
+      const namaFolder = (data.nama_pemohon || "Laporan")
+        .replace(/[^a-z0-9]/gi, "_")
+        .substring(0, 50);
+
       const fotoList = data.dokumentasi_foto || [];
 
       for (const [i, fotoUrl] of fotoList.entries()) {
         try {
-          const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
+          const response = await axios.get(fotoUrl, { responseType: "arraybuffer" });
           const imageBuffer = Buffer.from(response.data);
 
-          // Overlay teks dari Firestore pakai Roboto
+          // ✅ SVG overlay dengan font Roboto embed base64
           const svgOverlay = `
             <svg width="1280" height="220" xmlns="http://www.w3.org/2000/svg">
               <style>
                 @font-face {
                   font-family: 'Roboto';
-                  src: url('file://${fontPath}');
+                  src: url(data:font/truetype;charset=utf-8;base64,${robotoBase64}) format('truetype');
                 }
-                .title { fill: white; font-size: 28px; font-family: 'Roboto', sans-serif; font-weight: bold; }
+                .title { fill: white; font-size: 28px; font-family: 'Roboto'; font-weight: bold; }
               </style>
               <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.5)" />
-              <text x="20" y="40" class="title">Pemohon: ${data.nama_pemohon || '-'}</text>
-              <text x="20" y="80" class="title">Driver: ${data.nama_driver || '-'}</text>
-              <text x="20" y="120" class="title">Instansi: ${data.instansi_rujukan || '-'}</text>
-              <text x="20" y="160" class="title">Alamat: ${data.alamat_pemohon || '-'}</text>
-              <text x="20" y="200" class="title">Tanggal: ${data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleDateString() : '-'}</text>
+              <text x="20" y="40" class="title">Pemohon: ${data.nama_pemohon || "-"}</text>
+              <text x="20" y="80" class="title">Driver: ${data.nama_driver || "-"}</text>
+              <text x="20" y="120" class="title">Instansi: ${data.instansi_rujukan || "-"}</text>
+              <text x="20" y="160" class="title">Alamat: ${data.alamat_pemohon || "-"}</text>
+              <text x="20" y="200" class="title">Tanggal: ${
+                data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleDateString() : "-"
+              }</text>
             </svg>
           `;
 
           const processedImage = await sharp(imageBuffer)
             .resize({ width: 1280 })
-            .composite([{ input: Buffer.from(svgOverlay), gravity: 'southwest' }])
+            .composite([{ input: Buffer.from(svgOverlay), gravity: "southwest" }])
             .jpeg({ quality: 90 })
             .toBuffer();
 
@@ -220,8 +231,8 @@ app.get('/export-laporan-bulanan', async (req, res) => {
 
     await archive.finalize();
   } catch (error) {
-    console.error('Error ekspor laporan bulanan:', error);
-    res.status(500).send('Terjadi kesalahan server');
+    console.error("Error ekspor laporan bulanan:", error);
+    res.status(500).send("Terjadi kesalahan server");
   }
 });
 
