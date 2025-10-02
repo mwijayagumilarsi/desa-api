@@ -183,142 +183,91 @@ const createSvgOverlay = (text, width, height, fileIndex, totalFiles) => {
 
     return Buffer.from(svg, 'utf8');
 };
+// ==================== EXPORT LAPORAN BULANAN ====================
+app.get('/export-laporan-bulanan', async (req, res) => {
+  try {
+    const { bulan, tahun } = req.query;
+    if (!bulan || !tahun) {
+      return res.status(400).send('Parameter bulan & tahun wajib diisi');
+    }
 
-// 🟢 ENDPOINT EKSPOR LAPORAN BULANAN (REVISI PENANGANAN ERROR SHARP)
-app.post("/export-laporan-bulanan", async (req, res) => {
-    const { bulan, tahun } = req.body;
+    const bulanInt = parseInt(bulan) - 1; // bulan di JS dimulai dari 0
+    const startDate = new Date(tahun, bulanInt, 1);
+    const endDate = new Date(tahun, bulanInt + 1, 1);
 
-    if (!bulan || !tahun) {
-        return res.status(400).send({ error: "Bulan dan tahun diperlukan." });
-    }
+    // Ambil data laporan dari Firestore
+    const snapshot = await db.collection('laporan_driver')
+      .where('tanggal', '>=', admin.firestore.Timestamp.fromDate(startDate))
+      .where('tanggal', '<', admin.firestore.Timestamp.fromDate(endDate))
+      .get();
 
-    // 1. Hitung Rentang Tanggal (TETAP)
-    const startOfMonth = new Date(tahun, bulan - 1, 1);
-    const endOfMonth = new Date(tahun, bulan, 0, 23, 59, 59, 999);
+    if (snapshot.empty) {
+      return res.status(404).send('Tidak ada laporan di bulan ini');
+    }
 
-    const startTimestamp = Timestamp.fromDate(startOfMonth);
-    const endTimestamp = Timestamp.fromDate(endOfMonth);
+    // Siapkan streaming ZIP ke client
+    res.setHeader('Content-Disposition', `attachment; filename="Laporan_${bulan}_${tahun}.zip"`);
+    res.setHeader('Content-Type', 'application/zip');
 
-    const monthName = startOfMonth.toLocaleString('id-ID', { month: 'long' });
-    const zipFileName = `Dokumentasi_Laporan_${monthName}_${tahun}.zip`;
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.pipe(res);
 
-    // 2. Query Firestore (TETAP)
-    try {
-        const snapshot = await db.collection('laporan_driver')
-            .where('tanggal_pengerjaan', '>=', startTimestamp)
-            .where('tanggal_pengerjaan', '<=', endTimestamp)
-            .orderBy('tanggal_pengerjaan', 'asc')
-            .get();
+    for (const doc of snapshot.docs) {
+      const data = doc.data();
+      const namaFolder = (data.nama_pemohon || 'Laporan').replace(/[^a-z0-9]/gi, '_').substring(0, 50);
 
-        if (snapshot.empty) {
-            return res.status(404).send({ error: `Tidak ada laporan pada ${monthName} ${tahun}.` });
-        }
+      // Proses setiap foto laporan
+      if (data.foto && Array.isArray(data.foto)) {
+        for (const [i, fotoUrl] of data.foto.entries()) {
+          try {
+            // Download foto dari Cloudinary
+            const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
+            const imageBuffer = Buffer.from(response.data);
 
-        // 3. Persiapan Archiver dan Headers (TETAP)
-        res.setHeader('Content-Type', 'application/zip');
-        res.setHeader('Content-Disposition', `attachment; filename="${zipFileName}"`);
+            // Buat overlay watermark dari Firestore data
+            const svgOverlay = `
+              <svg width="1280" height="220">
+                <style>
+                  .title { fill: white; font-size: 28px; font-weight: bold; font-family: Arial, sans-serif; }
+                </style>
+                <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.5)" />
+                <text x="20" y="40" class="title">Pemohon: ${data.nama_pemohon || '-'}</text>
+                <text x="20" y="80" class="title">Driver: ${data.nama_driver || '-'}</text>
+                <text x="20" y="120" class="title">Instansi: ${data.instansi || '-'}</text>
+                <text x="20" y="160" class="title">Alamat: ${data.alamat || '-'}</text>
+                <text x="20" y="200" class="title">Tanggal: ${data.tanggal ? data.tanggal.toDate().toLocaleDateString() : '-'}</text>
+              </svg>
+            `;
 
-        const archive = archiver('zip', {
-            zlib: { level: 9 } 
-        });
+            // Tambahkan watermark dengan Sharp
+            const processedImage = await sharp(imageBuffer)
+              .resize({ width: 1280 }) // supaya tidak berat
+              .composite([
+                {
+                  input: Buffer.from(svgOverlay),
+                  gravity: 'southwest'
+                }
+              ])
+              .jpeg({ quality: 90 })
+              .toBuffer();
 
-        archive.pipe(res);
+            // Masukkan ke dalam zip
+            archive.append(processedImage, { name: `${namaFolder}/foto_${i + 1}.jpg` });
 
-        // 4. Proses Setiap Laporan (TETAP)
-        for (const doc of snapshot.docs) {
-            const data = doc.data();
-            const docId = doc.id;
-            
-            const safePemohonName = (data.nama_pemohon || 'Laporan').replace(/[^a-z0-9]/gi, '_').toLowerCase();
-            const folderName = `${docId}_${safePemohonName}`;
-            const fotoList = data.dokumentasi_foto || [];
+          } catch (err) {
+            console.error(`Gagal proses foto: ${fotoUrl}`, err);
+            // fallback: masukkan gambar asli tanpa watermark
+            archive.append(imageBuffer, { name: `${namaFolder}/foto_${i + 1}.jpg` });
+          }
+        }
+      }
+    }
 
-            const tanggalFormatted = data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleString('id-ID', {
-                day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
-            }) : 'N/A';
-            
-            const reportMetadata = 
-                `ID Laporan: ${docId}` +
-                `\nTanggal: ${tanggalFormatted}` +
-                `\nPemohon: ${data.nama_pemohon || 'N/A'}` +
-                `\nDriver: ${data.nama_driver || 'N/A'}` +
-                `\nInstansi: ${data.instansi_rujukan || 'N/A'}` +
-                `\nAlamat: ${data.alamat_pemohon || 'N/A'}`;
-
-            // 5. Unduh dan Tambahkan Foto DENGAN KETERANGAN TERTANAM
-            for (let i = 0; i < fotoList.length; i++) {
-                const fotoUrl = fotoList[i];
-                
-                try {
-                    const fotoResponse = await fetch(fotoUrl);
-                    if (!fotoResponse.ok) {
-                        console.warn(`Gagal unduh foto: ${fotoUrl} (Status: ${fotoResponse.status})`);
-                        continue; // Lanjut ke foto berikutnya jika gagal unduh
-                    }
-
-                    let fotoBuffer = await fotoResponse.buffer(); 
-                    let bufferFinal = fotoBuffer; // 🔑 Default: Gunakan buffer asli
-
-                    const extension = path.extname(new URL(fotoUrl).pathname) || '.jpg';
-                    const fileIndex = i + 1;
-                    const fileName = `foto_${fileIndex}${extension}`;
-                    
-                    try {
-                        // Proses Sharp: Ini adalah blok yang rentan error
-                        const image = sharp(fotoBuffer);
-                        const metadata = await image.metadata();
-                        const { width, height } = metadata;
-
-                        if (width && height) {
-                            const svgOverlayBuffer = createSvgOverlay(
-                                reportMetadata, 
-                                width, 
-                                height, 
-                                fileIndex, 
-                                fotoList.length
-                            );
-
-                            bufferFinal = await image
-                                .composite([{
-                                    input: svgOverlayBuffer,
-                                    left: 0,
-                                    top: 0
-                                }])
-                                .jpeg({ quality: 90 }) 
-                                .toBuffer();
-                                
-                            console.log(`✅ Foto ${fileName} berhasil dianotasi.`);
-                        } else {
-                            console.warn(`⚠️ Gagal mendapatkan dimensi untuk ${fileName}. Menyertakan foto asli.`);
-                        }
-                    } catch (sharpError) {
-                        // 🔑 KUNCI PERBAIKAN: Jika Sharp gagal (misal: Memory Limit, format tidak didukung)
-                        console.error(`❌ Error pemrosesan Sharp pada ${fileName}. Menyertakan foto asli.`, sharpError.message);
-                        bufferFinal = fotoBuffer; // Gunakan buffer asli yang belum diubah
-                    }
-
-                    // Tambahkan foto (yang sudah dianotasi ATAU yang asli) ke dalam ZIP
-                    archive.append(bufferFinal, { name: path.join(folderName, fileName) });
-                    
-                } catch (e) {
-                    console.error(`❌ Error fatal saat memproses ${fotoUrl}:`, e);
-                    // Jika ini gagal, loop akan berlanjut, tetapi Anda harus memeriksa log server Anda
-                    // untuk melihat mengapa unduhan (fetch) atau append ke zip gagal.
-                }
-            }
-        }
-
-        // 6. Finalisasi ZIP (TETAP)
-        await archive.finalize();
-
-    } catch (error) {
-        console.error("❌ Error ekspor laporan bulanan:", error);
-        if (!res.headersSent) {
-            return res.status(500).send({ error: "Gagal memproses ekspor ZIP di server." });
-        }
-    }
+    await archive.finalize();
+  } catch (error) {
+    console.error('Error ekspor laporan bulanan:', error);
+    res.status(500).send('Terjadi kesalahan server');
+  }
 });
-
-
 // ✅ Vercel: jangan pakai app.listen (TETAP)
 export default app;
