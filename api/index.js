@@ -309,10 +309,16 @@ app.get("/export-laporan-bulanan", async (req, res) => {
           archive.append(finalBuf, { name: `${namaFolder}/foto_${i + 1}.jpg` });
           console.log(`✅ Ditambahkan: ${namaFolder}/foto_${i + 1}.jpg`);
 
-        } catch (err) {
-          console.error(`❌ Gagal proses foto: ${fotoUrl}`, err.message || err);
-          // Tambahkan file placeholder agar zip tidak kosong
-          archive.append(Buffer.from("Gagal memproses foto"), { name: `${namaFolder}/foto_${i + 1}_error.txt` });
+         } catch (err) {
+          // 🔴 PERBAIKAN: Log pesan error secara detail
+          const errorMessage = err.message || JSON.stringify(err);
+          console.error(`❌ GAGAL PROSES FOTO (${fotoUrl}):`, errorMessage);
+          
+          // Ganti isi file error agar mencantumkan pesan error yang didapat
+          archive.append(
+            Buffer.from(`Gagal memproses foto. Error: ${errorMessage}`), 
+            { name: `${namaFolder}/foto_${i + 1}_error.txt` }
+          );
         }
       }
     }
