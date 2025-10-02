@@ -34,7 +34,7 @@ app.use(cors());
 // ----------------- Helper: Menghasilkan Transformasi Teks Cloudinary (FINAL FIX) -----------------
 /**
  * Membuat string transformasi l_text yang dirantai (chained) untuk teks multi-baris.
- * Termasuk pembersihan karakter yang agresif untuk mengatasi Error 400.
+ * Termasuk pembersihan agresif karakter bermasalah.
  * @param {string[]} lines - Array dari string teks, di mana setiap string adalah satu baris.
  * @returns {string} String transformasi Cloudinary yang dirantai (contoh: t_text/t_text)
  */
@@ -46,20 +46,19 @@ function createTextWatermarkTransformations(lines) {
   const initialX = 20; 
 
   lines.slice().reverse().forEach((text, index) => {
-    // 💡 PERBAIKAN PENTING: Ganti koma (,) dengan spasi atau karakter netral, dan hapus slash.
-    let cleanText = text.replace(/,/g, ' '); 
-    cleanText = cleanText.replace(/\\|\/|\n/g, ''); // Hapus semua slash dan backslash
+    // 💡 PERBAIKAN SINTAKS 400 AGRESIF: Ganti Koma, Slash, Backslash dengan Spasi
+    // Koma (,) dan Slash (/) adalah pemisah URL transformasi dan harus dihilangkan atau diganti.
+    let cleanText = text.replace(/,|\\|\/|\n/g, ' '); 
     cleanText = cleanText.replace(/[|?#%&]/g, ''); // Hapus karakter lain yang bermasalah
 
     // URL-encode teks yang sudah dibersihkan
-    // Spasi akan menjadi %20, yang merupakan representasi URL paling aman.
     const encodedText = encodeURIComponent(cleanText).replace(/'/g, '%27'); 
     
     const yPosition = initialY + (index * lineHeight); 
 
-    // Menggunakan NotoSans karena mendukung Unicode luas (solusi kotak-kotak)
+    // Output adalah STRING transformasi l_text
     const transformString = 
-        `l_text:NotoSans_${baseFontSize}_bold:${encodedText},g_south_west,x_${initialX},y_${yPosition},co_rgb:FFFFFF,o_80`;
+        `l_text:Arial_${baseFontSize}_bold:${encodedText},g_south_west,x_${initialX},y_${yPosition},co_rgb:FFFFFF,o_80`;
     
     transforms.push(transformString);
   });
