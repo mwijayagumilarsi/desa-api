@@ -2,7 +2,6 @@ import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
 import sharp from "sharp"; 
-import path from "path";
 import archiver from "archiver"; 
 import { db } from "./firebase.js"; // Firestore instance
 import admin from 'firebase-admin'; 
@@ -12,7 +11,7 @@ import multer from "multer";
 import dotenv from "dotenv";
 import { google } from "googleapis";
 import fetch from "node-fetch";
-import axios from "axios"; // ✅ WAJIB ditambah biar bisa download foto
+import axios from "axios";
 
 dotenv.config();
 
@@ -33,7 +32,7 @@ const upload = multer({ storage });
 app.use(bodyParser.json());
 app.use(cors());
 
-// ✅ Endpoint /upload-berkas
+// ✅ Upload berkas ke Cloudinary
 app.post("/upload-berkas", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
@@ -72,7 +71,7 @@ const auth = new google.auth.GoogleAuth({
   scopes: SCOPES,
 });
 
-// ✅ Endpoint kirim notifikasi
+// ✅ Kirim notifikasi
 app.post("/send-notif", async (req, res) => {
   const { token, title, body } = req.body;
 
@@ -117,7 +116,7 @@ app.post("/send-notif", async (req, res) => {
   }
 });
 
-// ✅ Hapus file di Cloudinary
+// ✅ Hapus berkas di Cloudinary
 app.post("/delete-berkas", async (req, res) => {
   try {
     const { fileUrl } = req.body;
@@ -173,26 +172,22 @@ app.get('/export-laporan-bulanan', async (req, res) => {
     const archive = archiver('zip', { zlib: { level: 9 } });
     archive.pipe(res);
 
-    let laporanIndex = 1;
     for (const doc of snapshot.docs) {
       const data = doc.data();
-      const namaPemohon = data.nama_pemohon || "TanpaNama";
+      const namaFolder = (data.nama_pemohon || 'Laporan').replace(/[^a-z0-9]/gi, '_').substring(0, 50);
+
       const fotoList = data.dokumentasi_foto || [];
 
-      console.log(`📑 Proses laporan: ${namaPemohon}, Jumlah foto: ${fotoList.length}`);
-
-      for (let i = 0; i < fotoList.length; i++) {
-        const fotoUrl = fotoList[i];
+      for (const [i, fotoUrl] of fotoList.entries()) {
         try {
-          console.log("⬇️ Download foto:", fotoUrl);
-
-          const response = await axios.get(fotoUrl, { responseType: "arraybuffer" });
+          const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
           const imageBuffer = Buffer.from(response.data);
 
+          // Overlay teks dari field Firestore (HILANGKAN font-family)
           const svgOverlay = `
-            <svg width="1280" height="220">
+            <svg width="1280" height="220" xmlns="http://www.w3.org/2000/svg">
               <style>
-                .title { fill: white; font-size: 28px; font-weight: bold; font-family: Arial, sans-serif; }
+                .title { fill: white; font-size: 28px; font-weight: bold; }
               </style>
               <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.5)" />
               <text x="20" y="40" class="title">Pemohon: ${data.nama_pemohon || '-'}</text>
@@ -203,26 +198,22 @@ app.get('/export-laporan-bulanan', async (req, res) => {
             </svg>
           `;
 
-          const watermarked = await sharp(imageBuffer)
+          const processedImage = await sharp(imageBuffer)
             .resize({ width: 1280 })
-            .composite([{ input: Buffer.from(svgOverlay), gravity: "southwest" }])
+            .composite([{ input: Buffer.from(svgOverlay), gravity: 'southwest' }])
             .jpeg({ quality: 90 })
             .toBuffer();
 
-          const fileName = `laporan${laporanIndex}_foto${i + 1}.jpg`;
-          console.log("✅ Tambah ke ZIP:", fileName);
-
-          archive.append(watermarked, { name: fileName });
+          archive.append(processedImage, { name: `${namaFolder}/foto_${i + 1}.jpg` });
         } catch (err) {
-          console.error("❌ Gagal proses foto:", fotoUrl, err.message);
+          console.error(`Gagal proses foto: ${fotoUrl}`, err);
         }
       }
-      laporanIndex++;
     }
 
     await archive.finalize();
   } catch (error) {
-    console.error('❌ Error ekspor laporan bulanan:', error);
+    console.error('Error ekspor laporan bulanan:', error);
     res.status(500).send('Terjadi kesalahan server');
   }
 });
