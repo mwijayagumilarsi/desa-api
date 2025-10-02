@@ -191,21 +191,21 @@ app.get('/export-laporan-bulanan', async (req, res) => {
       return res.status(400).send('Parameter bulan & tahun wajib diisi');
     }
 
-    const bulanInt = parseInt(bulan) - 1; // bulan di JS dimulai dari 0
+    const bulanInt = parseInt(bulan) - 1; 
     const startDate = new Date(tahun, bulanInt, 1);
     const endDate = new Date(tahun, bulanInt + 1, 1);
 
-    // Ambil data laporan dari Firestore
+    // Ambil laporan dari Firestore
     const snapshot = await db.collection('laporan_driver')
-      .where('tanggal', '>=', admin.firestore.Timestamp.fromDate(startDate))
-      .where('tanggal', '<', admin.firestore.Timestamp.fromDate(endDate))
+      .where('tanggal_pengerjaan', '>=', admin.firestore.Timestamp.fromDate(startDate))
+      .where('tanggal_pengerjaan', '<', admin.firestore.Timestamp.fromDate(endDate))
       .get();
 
     if (snapshot.empty) {
       return res.status(404).send('Tidak ada laporan di bulan ini');
     }
 
-    // Siapkan streaming ZIP ke client
+    // Streaming ZIP
     res.setHeader('Content-Disposition', `attachment; filename="Laporan_${bulan}_${tahun}.zip"`);
     res.setHeader('Content-Type', 'application/zip');
 
@@ -216,49 +216,37 @@ app.get('/export-laporan-bulanan', async (req, res) => {
       const data = doc.data();
       const namaFolder = (data.nama_pemohon || 'Laporan').replace(/[^a-z0-9]/gi, '_').substring(0, 50);
 
-      // Proses setiap foto laporan
-      if (data.foto && Array.isArray(data.foto)) {
-        for (const [i, fotoUrl] of data.foto.entries()) {
-          try {
-            // Download foto dari Cloudinary
-            const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
-            const imageBuffer = Buffer.from(response.data);
+      const fotoList = data.dokumentasi_foto || [];
 
-            // Buat overlay watermark dari Firestore data
-            const svgOverlay = `
-              <svg width="1280" height="220">
-                <style>
-                  .title { fill: white; font-size: 28px; font-weight: bold; font-family: Arial, sans-serif; }
-                </style>
-                <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.5)" />
-                <text x="20" y="40" class="title">Pemohon: ${data.nama_pemohon || '-'}</text>
-                <text x="20" y="80" class="title">Driver: ${data.nama_driver || '-'}</text>
-                <text x="20" y="120" class="title">Instansi: ${data.instansi || '-'}</text>
-                <text x="20" y="160" class="title">Alamat: ${data.alamat || '-'}</text>
-                <text x="20" y="200" class="title">Tanggal: ${data.tanggal ? data.tanggal.toDate().toLocaleDateString() : '-'}</text>
-              </svg>
-            `;
+      for (const [i, fotoUrl] of fotoList.entries()) {
+        try {
+          const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
+          const imageBuffer = Buffer.from(response.data);
 
-            // Tambahkan watermark dengan Sharp
-            const processedImage = await sharp(imageBuffer)
-              .resize({ width: 1280 }) // supaya tidak berat
-              .composite([
-                {
-                  input: Buffer.from(svgOverlay),
-                  gravity: 'southwest'
-                }
-              ])
-              .jpeg({ quality: 90 })
-              .toBuffer();
+          // Overlay teks dari field Firestore
+          const svgOverlay = `
+            <svg width="1280" height="220">
+              <style>
+                .title { fill: white; font-size: 28px; font-weight: bold; font-family: Arial, sans-serif; }
+              </style>
+              <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.5)" />
+              <text x="20" y="40" class="title">Pemohon: ${data.nama_pemohon || '-'}</text>
+              <text x="20" y="80" class="title">Driver: ${data.nama_driver || '-'}</text>
+              <text x="20" y="120" class="title">Instansi: ${data.instansi_rujukan || '-'}</text>
+              <text x="20" y="160" class="title">Alamat: ${data.alamat_pemohon || '-'}</text>
+              <text x="20" y="200" class="title">Tanggal: ${data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleDateString() : '-'}</text>
+            </svg>
+          `;
 
-            // Masukkan ke dalam zip
-            archive.append(processedImage, { name: `${namaFolder}/foto_${i + 1}.jpg` });
+          const processedImage = await sharp(imageBuffer)
+            .resize({ width: 1280 })
+            .composite([{ input: Buffer.from(svgOverlay), gravity: 'southwest' }])
+            .jpeg({ quality: 90 })
+            .toBuffer();
 
-          } catch (err) {
-            console.error(`Gagal proses foto: ${fotoUrl}`, err);
-            // fallback: masukkan gambar asli tanpa watermark
-            archive.append(imageBuffer, { name: `${namaFolder}/foto_${i + 1}.jpg` });
-          }
+          archive.append(processedImage, { name: `${namaFolder}/foto_${i + 1}.jpg` });
+        } catch (err) {
+          console.error(`Gagal proses foto: ${fotoUrl}`, err);
         }
       }
     }
