@@ -12,8 +12,8 @@ import dotenv from "dotenv";
 import { google } from "googleapis";
 import fetch from "node-fetch";
 import axios from "axios";
-import fs from "fs";
 import path from "path";
+import fs from "fs";
 
 dotenv.config();
 
@@ -33,6 +33,11 @@ const upload = multer({ storage });
 // Middleware
 app.use(bodyParser.json());
 app.use(cors());
+
+// ✅ Path font Roboto
+const fontPath = path.join(process.cwd(), "fonts", "Roboto-Regular.ttf");
+console.log("📂 Font path:", fontPath);
+console.log("📂 Font exists:", fs.existsSync(fontPath));
 
 // ✅ Upload berkas ke Cloudinary
 app.post("/upload-berkas", upload.single("file"), async (req, res) => {
@@ -55,7 +60,6 @@ app.post("/upload-berkas", upload.single("file"), async (req, res) => {
     };
 
     const result = await streamUpload(req.file.buffer);
-
     return res.status(200).send({ url: result.secure_url });
   } catch (error) {
     console.error("❌ Error unggah berkas:", error);
@@ -105,7 +109,6 @@ app.post("/send-notif", async (req, res) => {
     );
 
     const data = await response.json();
-
     if (response.ok) {
       return res.status(200).send({ success: true, message: "Notification sent.", data });
     } else {
@@ -133,7 +136,6 @@ app.post("/delete-berkas", async (req, res) => {
     const publicId = `${folderName}/${fileName.split(".")[0]}`; 
 
     const result = await cloudinary.uploader.destroy(publicId);
-
     if (result.result === "ok") {
       return res.status(200).send({ success: true, message: "✅ File berhasil dihapus", publicId });
     } else {
@@ -146,11 +148,6 @@ app.post("/delete-berkas", async (req, res) => {
 });
 
 // ==================== EXPORT LAPORAN BULANAN ====================
-// 🔹 Load font Roboto-Regular.ttf
-const fontPath = path.join(process.cwd(), "fonts", "Roboto-Regular.ttf");
-const fontData = fs.readFileSync(fontPath);
-const fontBase64 = fontData.toString("base64");
-
 app.get('/export-laporan-bulanan', async (req, res) => {
   try {
     const { bulan, tahun } = req.query;
@@ -182,7 +179,6 @@ app.get('/export-laporan-bulanan', async (req, res) => {
     for (const doc of snapshot.docs) {
       const data = doc.data();
       const namaFolder = (data.nama_pemohon || 'Laporan').replace(/[^a-z0-9]/gi, '_').substring(0, 50);
-
       const fotoList = data.dokumentasi_foto || [];
 
       for (const [i, fotoUrl] of fotoList.entries()) {
@@ -190,22 +186,22 @@ app.get('/export-laporan-bulanan', async (req, res) => {
           const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
           const imageBuffer = Buffer.from(response.data);
 
-          // Overlay teks dari field Firestore + Roboto font
+          // Overlay teks dari Firestore pakai Roboto
           const svgOverlay = `
             <svg width="1280" height="220" xmlns="http://www.w3.org/2000/svg">
               <style>
                 @font-face {
                   font-family: 'Roboto';
-                  src: url('data:font/ttf;base64,${fontBase64}') format('truetype');
+                  src: url('file://${fontPath}');
                 }
-                .title { fill: white; font-size: 28px; font-weight: bold; font-family: 'Roboto', sans-serif; }
+                .title { fill: white; font-size: 28px; font-family: 'Roboto', sans-serif; font-weight: bold; }
               </style>
               <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.5)" />
               <text x="20" y="40" class="title">Pemohon: ${data.nama_pemohon || '-'}</text>
               <text x="20" y="80" class="title">Driver: ${data.nama_driver || '-'}</text>
               <text x="20" y="120" class="title">Instansi: ${data.instansi_rujukan || '-'}</text>
               <text x="20" y="160" class="title">Alamat: ${data.alamat_pemohon || '-'}</text>
-              <text x="20" y="200" class="title">Tanggal: ${data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleDateString("id-ID") : '-'}</text>
+              <text x="20" y="200" class="title">Tanggal: ${data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleDateString() : '-'}</text>
             </svg>
           `;
 
