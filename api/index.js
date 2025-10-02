@@ -34,7 +34,7 @@ app.use(cors());
 // ----------------- Helper: Menghasilkan Transformasi Teks Cloudinary (FINAL FIX) -----------------
 /**
  * Membuat string transformasi l_text yang dirantai (chained) untuk teks multi-baris.
- * Termasuk pembersihan koma (,) yang sering menyebabkan Error 400.
+ * Termasuk pembersihan agresif karakter bermasalah.
  * @param {string[]} lines - Array dari string teks, di mana setiap string adalah satu baris.
  * @returns {string} String transformasi Cloudinary yang dirantai (contoh: t_text/t_text)
  */
@@ -46,12 +46,11 @@ function createTextWatermarkTransformations(lines) {
   const initialX = 20; 
 
   lines.slice().reverse().forEach((text, index) => {
-    // 💡 PERBAIKAN SINTAKS 400: Bersihkan Koma dan Karakter Bermasalah
-    // Ganti koma (,) dengan titik dua (:) atau karakter aman lainnya
-    // Koma adalah pemisah parameter di Cloudinary, jadi harus diganti.
-    let cleanText = text.replace(/,/g, ' '); 
-    cleanText = cleanText.replace(/[|?]/g, ''); // Hapus | dan ?
-    
+    // 💡 PERBAIKAN SINTAKS 400 AGRESIF: Ganti Koma, Slash, Backslash dengan Spasi
+    // Koma (,) dan Slash (/) adalah pemisah URL transformasi dan harus dihilangkan atau diganti.
+    let cleanText = text.replace(/,|\\|\/|\n/g, ' '); 
+    cleanText = cleanText.replace(/[|?#%&]/g, ''); // Hapus karakter lain yang bermasalah
+
     // URL-encode teks yang sudah dibersihkan
     const encodedText = encodeURIComponent(cleanText).replace(/'/g, '%27'); 
     
@@ -345,7 +344,7 @@ app.get("/export-laporan-bulanan", async (req, res) => {
   } catch (error) {
     console.error("Error ekspor laporan bulanan:", error);
     if (!res.headersSent) res.status(500).send("Terjadi kesalahan server");
-  }
+      }
 });
 
 // ----------------- Vercel export -----------------
