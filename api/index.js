@@ -66,7 +66,6 @@ const SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"];
 const auth = new google.auth.GoogleAuth({
   credentials: {
     client_email: process.env.FIREBASE_CLIENT_EMAIL,
-    // Perhatikan: private_key harus di-decode di lingkungan hosting Anda jika masih menggunakan \n
     private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"), 
   },
   scopes: SCOPES,
@@ -145,46 +144,36 @@ app.post("/delete-berkas", async (req, res) => {
 });
 
 // ----------------------------------------------------------------------
-// 🛠️ FUNGSI BANTUAN SHARP REVISI FINAL: Mengatasi Masalah Font SVG
-//    * MENGHILANGKAN atribut font-family secara total
+// 🛠️ FUNGSI BANTUAN SHARP: Memastikan kompatibilitas font
 // ----------------------------------------------------------------------
 const createSvgOverlay = (text, width, height, fileIndex, totalFiles) => {
     const lines = text.split('\n');
     
-    // Penyesuaian ukuran teks dan padding
     const fontSize = Math.max(24, Math.floor(width / 45)); 
     const padding = Math.max(20, Math.floor(width / 60)); 
     const lineHeight = fontSize * 1.6; 
     
-    // Kotak latar belakang
     const textHeight = (lines.length + 1) * lineHeight; 
     const backgroundHeight = textHeight + (2 * padding) + (textHeight * 0.5);
     const backgroundY = height - backgroundHeight;
     
-    // 🔑 PERBAIKAN: Font-family dihilangkan agar Sharp menggunakan font default sistem
-    //               yang paling stabil (biasanya Arial atau font Linux dasar).
-
+    // 🔑 KUNCI: Font-family DIHILANGKAN
     let svgTextContent = '';
     
-    // Baris judul (FOTO KE-X/Y)
     const titleLine = `FOTO KE-${fileIndex}/${totalFiles}`;
     const titleYPos = backgroundY + padding + (fontSize * 1.0); 
     
     // Judul menggunakan warna kuning
     svgTextContent += `<text x="${padding}" y="${titleYPos}" fill="#FFEB3B" font-size="${fontSize + 4}px" font-weight="900" xml:space="preserve">${titleLine}</text>`; 
     
-    // Baris metadata laporan
     lines.forEach((line, index) => {
         const yPos = titleYPos + (lineHeight * (index + 1)); 
         
-        // Escape karakter khusus HTML/XML
         const escapedLine = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         
-        // Baris metadata menggunakan warna putih
         svgTextContent += `<text x="${padding}" y="${yPos}" fill="white" font-size="${fontSize}px" font-weight="normal" xml:space="preserve">${escapedLine}</text>`;
     });
 
-    // Tambahkan encoding UTF-8 di header SVG
     const svg = `<?xml version="1.0" encoding="UTF-8"?>
         <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
             <rect x="0" y="${backgroundY}" width="${width}" height="${backgroundHeight}" fill="rgba(0, 0, 0, 0.8)" />
@@ -192,10 +181,10 @@ const createSvgOverlay = (text, width, height, fileIndex, totalFiles) => {
         </svg>
     `;
 
-    return Buffer.from(svg, 'utf8'); // Wajib: Pastikan buffer dibuat dengan encoding UTF-8
+    return Buffer.from(svg, 'utf8');
 };
 
-// 🟢 ENDPOINT EKSPOR LAPORAN BULANAN (IMPLEMENTASI SHARP)
+// 🟢 ENDPOINT EKSPOR LAPORAN BULANAN (REVISI PENANGANAN ERROR SHARP)
 app.post("/export-laporan-bulanan", async (req, res) => {
     const { bulan, tahun } = req.body;
 
@@ -203,18 +192,17 @@ app.post("/export-laporan-bulanan", async (req, res) => {
         return res.status(400).send({ error: "Bulan dan tahun diperlukan." });
     }
 
-    // 1. Hitung Rentang Tanggal
+    // 1. Hitung Rentang Tanggal (TETAP)
     const startOfMonth = new Date(tahun, bulan - 1, 1);
     const endOfMonth = new Date(tahun, bulan, 0, 23, 59, 59, 999);
 
     const startTimestamp = Timestamp.fromDate(startOfMonth);
     const endTimestamp = Timestamp.fromDate(endOfMonth);
 
-    // Format nama file ZIP
     const monthName = startOfMonth.toLocaleString('id-ID', { month: 'long' });
     const zipFileName = `Dokumentasi_Laporan_${monthName}_${tahun}.zip`;
 
-    // 2. Query Firestore
+    // 2. Query Firestore (TETAP)
     try {
         const snapshot = await db.collection('laporan_driver')
             .where('tanggal_pengerjaan', '>=', startTimestamp)
@@ -226,7 +214,7 @@ app.post("/export-laporan-bulanan", async (req, res) => {
             return res.status(404).send({ error: `Tidak ada laporan pada ${monthName} ${tahun}.` });
         }
 
-        // 3. Persiapan Archiver dan Headers
+        // 3. Persiapan Archiver dan Headers (TETAP)
         res.setHeader('Content-Type', 'application/zip');
         res.setHeader('Content-Disposition', `attachment; filename="${zipFileName}"`);
 
@@ -236,7 +224,7 @@ app.post("/export-laporan-bulanan", async (req, res) => {
 
         archive.pipe(res);
 
-        // 4. Proses Setiap Laporan
+        // 4. Proses Setiap Laporan (TETAP)
         for (const doc of snapshot.docs) {
             const data = doc.data();
             const docId = doc.id;
@@ -245,12 +233,10 @@ app.post("/export-laporan-bulanan", async (req, res) => {
             const folderName = `${docId}_${safePemohonName}`;
             const fotoList = data.dokumentasi_foto || [];
 
-            // Buat string metadata utuh (dipisah baris)
             const tanggalFormatted = data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleString('id-ID', {
                 day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
             }) : 'N/A';
             
-            // Metadata tanpa emoji
             const reportMetadata = 
                 `ID Laporan: ${docId}` +
                 `\nTanggal: ${tanggalFormatted}` +
@@ -262,21 +248,28 @@ app.post("/export-laporan-bulanan", async (req, res) => {
             // 5. Unduh dan Tambahkan Foto DENGAN KETERANGAN TERTANAM
             for (let i = 0; i < fotoList.length; i++) {
                 const fotoUrl = fotoList[i];
+                
                 try {
                     const fotoResponse = await fetch(fotoUrl);
-                    if (fotoResponse.ok) {
-                        let fotoBuffer = await fotoResponse.buffer(); 
-                        const extension = path.extname(new URL(fotoUrl).pathname) || '.jpg';
-                        const fileIndex = i + 1;
-                        const fileName = `foto_${fileIndex}${extension}`;
-                        
-                        // 🔑 SHARP: Dapatkan dimensi gambar awal
+                    if (!fotoResponse.ok) {
+                        console.warn(`Gagal unduh foto: ${fotoUrl} (Status: ${fotoResponse.status})`);
+                        continue; // Lanjut ke foto berikutnya jika gagal unduh
+                    }
+
+                    let fotoBuffer = await fotoResponse.buffer(); 
+                    let bufferFinal = fotoBuffer; // 🔑 Default: Gunakan buffer asli
+
+                    const extension = path.extname(new URL(fotoUrl).pathname) || '.jpg';
+                    const fileIndex = i + 1;
+                    const fileName = `foto_${fileIndex}${extension}`;
+                    
+                    try {
+                        // Proses Sharp: Ini adalah blok yang rentan error
                         const image = sharp(fotoBuffer);
                         const metadata = await image.metadata();
                         const { width, height } = metadata;
 
                         if (width && height) {
-                            // 🔑 SHARP: Buat lapisan SVG untuk anotasi teks (Menggunakan fungsi revisi)
                             const svgOverlayBuffer = createSvgOverlay(
                                 reportMetadata, 
                                 width, 
@@ -285,8 +278,7 @@ app.post("/export-laporan-bulanan", async (req, res) => {
                                 fotoList.length
                             );
 
-                            // 🔑 SHARP: Gabungkan SVG ke gambar utama
-                            fotoBuffer = await image
+                            bufferFinal = await image
                                 .composite([{
                                     input: svgOverlayBuffer,
                                     left: 0,
@@ -294,21 +286,29 @@ app.post("/export-laporan-bulanan", async (req, res) => {
                                 }])
                                 .jpeg({ quality: 90 }) 
                                 .toBuffer();
+                                
+                            console.log(`✅ Foto ${fileName} berhasil dianotasi.`);
+                        } else {
+                            console.warn(`⚠️ Gagal mendapatkan dimensi untuk ${fileName}. Menyertakan foto asli.`);
                         }
-
-                        // Tambahkan foto (yang sudah dianotasi) ke dalam ZIP
-                        archive.append(fotoBuffer, { name: path.join(folderName, fileName) });
-                        
-                    } else {
-                        console.warn(`Gagal unduh foto: ${fotoUrl} (Status: ${fotoResponse.status})`);
+                    } catch (sharpError) {
+                        // 🔑 KUNCI PERBAIKAN: Jika Sharp gagal (misal: Memory Limit, format tidak didukung)
+                        console.error(`❌ Error pemrosesan Sharp pada ${fileName}. Menyertakan foto asli.`, sharpError.message);
+                        bufferFinal = fotoBuffer; // Gunakan buffer asli yang belum diubah
                     }
+
+                    // Tambahkan foto (yang sudah dianotasi ATAU yang asli) ke dalam ZIP
+                    archive.append(bufferFinal, { name: path.join(folderName, fileName) });
+                    
                 } catch (e) {
-                    console.error(`Error saat fetching/annotating foto ${fotoUrl}:`, e);
+                    console.error(`❌ Error fatal saat memproses ${fotoUrl}:`, e);
+                    // Jika ini gagal, loop akan berlanjut, tetapi Anda harus memeriksa log server Anda
+                    // untuk melihat mengapa unduhan (fetch) atau append ke zip gagal.
                 }
             }
         }
 
-        // 6. Finalisasi ZIP
+        // 6. Finalisasi ZIP (TETAP)
         await archive.finalize();
 
     } catch (error) {
