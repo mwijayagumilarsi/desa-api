@@ -33,17 +33,16 @@ app.use(cors());
 
 // ----------------- Helper: Menghasilkan Transformasi Teks Cloudinary -----------------
 /**
- * Membuat string transformasi l_text yang dirantai (chained) untuk teks multi-baris.
- * Ini adalah solusi paling stabil untuk menghindari Error 400 pada transformasi kompleks.
- * @param {string[]} lines - Array dari string teks, di mana setiap string adalah satu baris.
- * @returns {string} String transformasi Cloudinary yang dirantai (contoh: t_text/t_text)
- */
+ * Membuat string transformasi l_text yang dirantai (chained) untuk teks multi-baris.
+ * @param {string[]} lines - Array dari string teks, di mana setiap string adalah satu baris.
+ * @returns {string} String transformasi Cloudinary yang dirantai (contoh: t_text/t_text)
+ */
 function createTextWatermarkTransformations(lines) {
   const baseFontSize = 28;
   const transforms = [];
-  const lineHeight = 35; // Jarak vertikal antar baris
-  const initialY = 20;  // Jarak awal dari bawah (padding)
-  const initialX = 20;  // Jarak awal dari kiri (padding)
+  const lineHeight = 35; 
+  const initialY = 20;  
+  const initialX = 20; 
 
   // Iterasi secara terbalik agar baris pertama muncul di paling atas saat menggunakan gravity south_west
   lines.slice().reverse().forEach((text, index) => {
@@ -61,7 +60,6 @@ function createTextWatermarkTransformations(lines) {
   });
   
   // Gabungkan semua string transformasi, dipisahkan oleh '/'
-  // Ini adalah format URL Cloudinary yang benar untuk transformasi berantai
   return transforms.reverse().join('/');
 }
 
@@ -148,19 +146,34 @@ app.post("/delete-berkas", async (req, res) => {
   }
 });
 
-// ----------------- Helper: Extract Cloudinary public_id -----------------
+// ----------------- Helper: Extract Cloudinary public_id (FINAL FIX) -----------------
 function extractCloudinaryPublicId(url) {
   try {
     const u = new URL(url);
     const parts = u.pathname.split("/").filter(Boolean);
-    const idx = parts.findIndex((p) => p === "upload");
-    if (idx === -1) return null;
-    let publicParts = parts.slice(idx + 1);
+    const uploadIndex = parts.indexOf("upload");
+    
+    if (uploadIndex === -1) return null;
+
+    // Ambil semua bagian path setelah 'upload'
+    let publicParts = parts.slice(uploadIndex + 1);
+    
+    // Hapus versi (v1759376713)
     publicParts = publicParts.filter((p) => !/^v\d+/.test(p));
+    
     if (publicParts.length === 0) return null;
-    publicParts[publicParts.length - 1] = publicParts[publicParts.length - 1].replace(/\.[^/.]+$/, "");
+    
+    // Ambil elemen terakhir (yang berisi nama file + ekstensi), dan hapus ekstensi
+    const lastPartIndex = publicParts.length - 1;
+    const filenameWithExt = publicParts[lastPartIndex];
+    
+    // Hapus ekstensi (.jpg, .png, dll.)
+    publicParts[lastPartIndex] = filenameWithExt.replace(/\.[^/.]+$/, "");
+    
+    // Gabungkan folder/subfolder/file tanpa ekstensi
     return publicParts.join("/");
   } catch (e) {
+    console.error("Error extracting public ID:", e);
     return null;
   }
 }
@@ -240,17 +253,16 @@ app.get("/export-laporan-bulanan", async (req, res) => {
             // 🟢 Langkah 1: Buat string transformasi Teks Multi-Baris
             const textTransformString = createTextWatermarkTransformations(textLines);
             
-            // 💡 PERBAIKAN: Gabungkan Transformasi Dasar (skala) dan Transformasi Teks (string)
-            // Format Cloudinary URL: /upload/[transformasi_dasar]/[transformasi_chained]/[public_id].jpg
+            // 💡 Perakit URL: w_1280,c_scale/l_text:Arial.../public_id.jpg
             const combinedTransformation = `w_1280,c_scale,q_90,fl_force_strip/${textTransformString}`;
             
-            // Merakit URL secara manual untuk menghindari masalah parsing array transformasi oleh SDK
+            // Merakit URL secara manual untuk stabilitas (sangat penting untuk menghindari 404/400)
             const transformUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/${combinedTransformation}/${publicId}.jpg`;
 
             // Ambil gambar yang sudah di-watermark
             const resp = await axios.get(transformUrl, { 
                 responseType: "arraybuffer",
-                timeout: 60000 // Tingkatkan timeout ke 60 detik (sangat aman)
+                timeout: 60000 // Timeout 60 detik untuk operasi berat/pertama kali
             });
             
             let finalBuf = Buffer.from(resp.data);
@@ -305,7 +317,7 @@ app.get("/export-laporan-bulanan", async (req, res) => {
           console.log(`✅ Ditambahkan: ${namaFolder}/foto_${i + 1}.jpg`);
 
          } catch (err) {
-          // 🔴 PERBAIKAN: Log pesan error secara detail
+          // Log pesan error secara detail
           const errorMessage = err.message || JSON.stringify(err);
           console.error(`❌ GAGAL PROSES FOTO (${fotoUrl}):`, errorMessage);
           
