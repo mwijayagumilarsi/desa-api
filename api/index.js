@@ -44,12 +44,10 @@ function createTextWatermarkTransformations(lines) {
   const initialY = 20;  
   const initialX = 20; 
 
-  // Iterasi secara terbalik agar baris pertama muncul di paling atas saat menggunakan gravity south_west
   lines.slice().reverse().forEach((text, index) => {
     // URL-encode teks, dan ganti tanda kutip tunggal ('') yang sering menyebabkan masalah encoding
     const encodedText = encodeURIComponent(text).replace(/'/g, '%27'); 
     
-    // Posisi Y diukur dari south_west
     const yPosition = initialY + (index * lineHeight); 
 
     // Output adalah STRING transformasi l_text
@@ -253,16 +251,21 @@ app.get("/export-laporan-bulanan", async (req, res) => {
             // 🟢 Langkah 1: Buat string transformasi Teks Multi-Baris
             const textTransformString = createTextWatermarkTransformations(textLines);
             
-            // 💡 Perakit URL: w_1280,c_scale/l_text:Arial.../public_id.jpg
-            const combinedTransformation = `w_1280,c_scale,q_90,fl_force_strip/${textTransformString}`;
-            
-            // Merakit URL secara manual untuk stabilitas (sangat penting untuk menghindari 404/400)
-            const transformUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/${combinedTransformation}/${publicId}.jpg`;
+            // 💡 PERBAIKAN: Gunakan SDK Helper dengan raw_transformation
+            const transformUrl = cloudinary.url(publicId, {
+                // Transformasi dasar
+                transformation: [
+                    { width: 1280, crop: "scale", quality: 90, flags: 'force_strip' },
+                ],
+                // Raw transformation: Menyuntikkan string transformasi rantai teks eksplisit
+                raw_transformation: textTransformString,
+                format: 'jpg' // Pastikan formatnya selalu .jpg
+            });
 
             // Ambil gambar yang sudah di-watermark
             const resp = await axios.get(transformUrl, { 
                 responseType: "arraybuffer",
-                timeout: 60000 // Timeout 60 detik untuk operasi berat/pertama kali
+                timeout: 60000 
             });
             
             let finalBuf = Buffer.from(resp.data);
