@@ -130,8 +130,7 @@ function extractCloudinaryPublicId(url) {
     return null;
   }
 }
-
-// ----------------- Export laporan bulanan -----------------
+// ----------------- Export laporan bulanan (stabil) -----------------
 app.get("/export-laporan-bulanan", async (req, res) => {
   try {
     const { bulan, tahun } = req.query;
@@ -149,116 +148,99 @@ app.get("/export-laporan-bulanan", async (req, res) => {
 
     if (snapshot.empty) return res.status(404).send("Tidak ada laporan di bulan ini");
 
+    // Setup zip
     res.setHeader("Content-Disposition", `attachment; filename="Laporan_${bulan}_${tahun}.zip"`);
     res.setHeader("Content-Type", "application/zip");
-
     const archive = archiver("zip", { zlib: { level: 9 } });
+    archive.on('error', err => { throw err; });
     archive.pipe(res);
+
+    // Ambil logo desa sekali saja
+    let logoBuffer = null;
+    try {
+      const logoUrl = "https://res.cloudinary.com/drogicsrd/image/upload/v1759381091/desa_zn8ls3.png";
+      const logoResp = await axios.get(logoUrl, { responseType: "arraybuffer" });
+      logoBuffer = Buffer.from(logoResp.data);
+    } catch (e) {
+      console.warn("⚠️ Gagal ambil logo desa:", e.message);
+    }
 
     for (const doc of snapshot.docs) {
       const data = doc.data();
       const namaFolder = (data.nama_pemohon || "Laporan").replace(/[^a-z0-9]/gi, "_").substring(0, 50);
       const fotoList = data.dokumentasi_foto || [];
 
+      const tanggalStr = data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleDateString("id-ID") : "-";
+      const combinedText = [
+        `Pemohon: ${data.nama_pemohon || "-"}`,
+        `Driver: ${data.nama_driver || "-"}`,
+        `Instansi: ${data.instansi_rujukan || "-"}`,
+        `Alamat: ${data.alamat_pemohon || "-"}`,
+        `Tanggal: ${tanggalStr}`,
+      ].join("\n");
+
       for (const [i, fotoUrl] of fotoList.entries()) {
-  try {
-    const publicId = extractCloudinaryPublicId(fotoUrl);
+        try {
+          const publicId = extractCloudinaryPublicId(fotoUrl);
 
-    // --- Watermark teks ---
-    const tanggalStr = data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleDateString("id-ID") : "-";
-    const lines = [
-      `Pemohon: ${data.nama_pemohon || "-"}`,
-      `Driver: ${data.nama_driver || "-"}`,
-      `Instansi: ${data.instansi_rujukan || "-"}`,
-      `Alamat: ${data.alamat_pemohon || "-"}`,
-      `Tanggal: ${tanggalStr}`,
-    ];
-    const combinedText = lines.join("\n");
+          let finalBuf = null;
 
-    // --- Ambil logo desa dari Cloudinary ---
-    const logoUrl = "https://res.cloudinary.com/drogicsrd/image/upload/v1759381091/desa_zn8ls3.png";
-    const logoResp = await axios.get(logoUrl, { responseType: "arraybuffer" });
-    const logoBuffer = Buffer.from(logoResp.data);
+          if (publicId) {
+            // Cloudinary transform + fetch
+            const encodedText = encodeURIComponent(combinedText);
+            const transformUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/w_1280,c_scale,l_text:Arial_28:${encodedText},g_south_west,x_20,y_20,co_rgb:FFFFFF/${publicId}.jpg`;
+            const resp = await axios.get(transformUrl, { responseType: "arraybuffer" });
+            finalBuf = Buffer.from(resp.data);
 
-    if (publicId) {
-      // ✅ Cloudinary transformation + logo (pakai Sharp overlay logo)
-      const encodedText = encodeURIComponent(combinedText);
-      const transformationSegment = `w_1280,c_scale,l_text:Arial_28:${encodedText},g_south_west,x_20,y_20,co_rgb:FFFFFF`;
-      const transformUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/${transformationSegment}/${publicId}.jpg`;
-
-      const resp = await axios.get(transformUrl, { responseType: "arraybuffer" });
-      const buf = Buffer.from(resp.data);
-
-      const finalBuf = await sharp(buf)
-        .composite([
-          { input: logoBuffer, gravity: "southeast", blend: "over", top: 20, left: 20 } // 🟢 tambahin logo
-        ])
-        .jpeg({ quality: 90 })
-        .toBuffer();
-
-      archive.append(finalBuf, { name: `${namaFolder}/foto_${i + 1}.jpg` });
-      console.log(`✅ Ditambahkan (Cloudinary + Logo): ${namaFolder}/foto_${i + 1}.jpg`);
-      continue;
-    }
-
-    // 🔄 fallback Sharp (kalau bukan Cloudinary)
-    const response = await axios.get(fotoUrl, { responseType: "arraybuffer", timeout: 30000 });
-    const imageBuffer = Buffer.from(response.data);
-
-    let svgOverlay;
-    if (robotoBase64) {
-      svgOverlay = `
-        <svg width="1280" height="260" xmlns="http://www.w3.org/2000/svg">
-          <style>
-            @font-face {
-              font-family: 'Roboto';
-              src: url(data:font/truetype;charset=utf-8;base64,${robotoBase64}) format('truetype');
+            if (logoBuffer) {
+              finalBuf = await sharp(finalBuf)
+                .composite([{ input: logoBuffer, gravity: "southeast", blend: "over", top: 20, left: 20 }])
+                .jpeg({ quality: 90 })
+                .toBuffer();
             }
-            .title { fill: white; font-size: 28px; font-family: 'Roboto', sans-serif; font-weight: bold; }
-          </style>
-          <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.5)" />
-          <text x="20" y="40" class="title">Pemohon: ${escapeXml(data.nama_pemohon || "-")}</text>
-          <text x="20" y="80" class="title">Driver: ${escapeXml(data.nama_driver || "-")}</text>
-          <text x="20" y="120" class="title">Instansi: ${escapeXml(data.instansi_rujukan || "-")}</text>
-          <text x="20" y="160" class="title">Alamat: ${escapeXml(data.alamat_pemohon || "-")}</text>
-          <text x="20" y="200" class="title">Tanggal: ${escapeXml(tanggalStr)}</text>
-        </svg>
-      `;
-    } else {
-      svgOverlay = `
-        <svg width="1280" height="260" xmlns="http://www.w3.org/2000/svg">
-          <style>
-            .title { fill: white; font-size: 28px; font-family: sans-serif; font-weight: bold; }
-          </style>
-          <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.5)" />
-          <text x="20" y="40" class="title">Pemohon: ${escapeXml(data.nama_pemohon || "-")}</text>
-          <text x="20" y="80" class="title">Driver: ${escapeXml(data.nama_driver || "-")}</text>
-          <text x="20" y="120" class="title">Instansi: ${escapeXml(data.instansi_rujukan || "-")}</text>
-          <text x="20" y="160" class="title">Alamat: ${escapeXml(data.alamat_pemohon || "-")}</text>
-          <text x="20" y="200" class="title">Tanggal: ${escapeXml(tanggalStr)}</text>
-        </svg>
-      `;
-    }
 
-    const processedImage = await sharp(imageBuffer)
-      .resize({ width: 1280 })
-      .composite([
-        { input: Buffer.from(svgOverlay), gravity: "southwest" },
-        { input: logoBuffer, gravity: "southeast", blend: "over", top: 20, left: 20 } // 🟢 tambahin logo
-      ])
-      .jpeg({ quality: 90 })
-      .toBuffer();
+          } else {
+            // fallback: fetch original + overlay teks + logo
+            const response = await axios.get(fotoUrl, { responseType: "arraybuffer", timeout: 30000 });
+            const imageBuffer = Buffer.from(response.data);
 
-    archive.append(processedImage, { name: `${namaFolder}/foto_${i + 1}.jpg` });
-    console.log(`✅ Ditambahkan (Fallback + Logo): ${namaFolder}/foto_${i + 1}.jpg`);
-  } catch (err) {
-    console.error(`❌ Gagal proses foto: ${fotoUrl}`, err && err.message ? err.message : err);
-  }
-}
+            const svgOverlay = `
+              <svg width="1280" height="260" xmlns="http://www.w3.org/2000/svg">
+                <style>
+                  .title { fill: white; font-size: 28px; font-family: sans-serif; font-weight: bold; }
+                </style>
+                <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.5)" />
+                <text x="20" y="40" class="title">${escapeXml(data.nama_pemohon || "-")}</text>
+                <text x="20" y="80" class="title">${escapeXml(data.nama_driver || "-")}</text>
+                <text x="20" y="120" class="title">${escapeXml(data.instansi_rujukan || "-")}</text>
+                <text x="20" y="160" class="title">${escapeXml(data.alamat_pemohon || "-")}</text>
+                <text x="20" y="200" class="title">${escapeXml(tanggalStr)}</text>
+              </svg>
+            `;
 
+            const compositeArray = [{ input: Buffer.from(svgOverlay), gravity: "southwest" }];
+            if (logoBuffer) compositeArray.push({ input: logoBuffer, gravity: "southeast", blend: "over", top: 20, left: 20 });
+
+            finalBuf = await sharp(imageBuffer)
+              .resize({ width: 1280 })
+              .composite(compositeArray)
+              .jpeg({ quality: 90 })
+              .toBuffer();
+          }
+
+          archive.append(finalBuf, { name: `${namaFolder}/foto_${i + 1}.jpg` });
+          console.log(`✅ Ditambahkan: ${namaFolder}/foto_${i + 1}.jpg`);
+
+        } catch (err) {
+          console.error(`❌ Gagal proses foto: ${fotoUrl}`, err.message || err);
+          // Tambahkan file placeholder agar zip tidak kosong
+          archive.append(Buffer.from("Gagal memproses foto"), { name: `${namaFolder}/foto_${i + 1}_error.txt` });
+        }
+      }
     }
 
     await archive.finalize();
+    console.log("📦 Zip finalize selesai");
   } catch (error) {
     console.error("Error ekspor laporan bulanan:", error);
     if (!res.headersSent) res.status(500).send("Terjadi kesalahan server");
