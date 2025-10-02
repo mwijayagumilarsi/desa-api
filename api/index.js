@@ -12,6 +12,8 @@ import dotenv from "dotenv";
 import { google } from "googleapis";
 import fetch from "node-fetch";
 import axios from "axios";
+import fs from "fs";
+import path from "path";
 
 dotenv.config();
 
@@ -144,6 +146,11 @@ app.post("/delete-berkas", async (req, res) => {
 });
 
 // ==================== EXPORT LAPORAN BULANAN ====================
+// 🔹 Load font Roboto-Regular.ttf
+const fontPath = path.join(process.cwd(), "fonts", "Roboto-Regular.ttf");
+const fontData = fs.readFileSync(fontPath);
+const fontBase64 = fontData.toString("base64");
+
 app.get('/export-laporan-bulanan', async (req, res) => {
   try {
     const { bulan, tahun } = req.query;
@@ -183,18 +190,22 @@ app.get('/export-laporan-bulanan', async (req, res) => {
           const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
           const imageBuffer = Buffer.from(response.data);
 
-          // Overlay teks dari field Firestore (HILANGKAN font-family)
+          // Overlay teks dari field Firestore + Roboto font
           const svgOverlay = `
             <svg width="1280" height="220" xmlns="http://www.w3.org/2000/svg">
               <style>
-                .title { fill: white; font-size: 28px; font-weight: bold; }
+                @font-face {
+                  font-family: 'Roboto';
+                  src: url('data:font/ttf;base64,${fontBase64}') format('truetype');
+                }
+                .title { fill: white; font-size: 28px; font-weight: bold; font-family: 'Roboto', sans-serif; }
               </style>
               <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.5)" />
               <text x="20" y="40" class="title">Pemohon: ${data.nama_pemohon || '-'}</text>
               <text x="20" y="80" class="title">Driver: ${data.nama_driver || '-'}</text>
               <text x="20" y="120" class="title">Instansi: ${data.instansi_rujukan || '-'}</text>
               <text x="20" y="160" class="title">Alamat: ${data.alamat_pemohon || '-'}</text>
-              <text x="20" y="200" class="title">Tanggal: ${data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleDateString() : '-'}</text>
+              <text x="20" y="200" class="title">Tanggal: ${data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleDateString("id-ID") : '-'}</text>
             </svg>
           `;
 
