@@ -244,18 +244,23 @@ app.get("/export-laporan-bulanan", async (req, res) => {
 
           if (publicId) {
             // 🟢 Langkah 1: Cloudinary Transformasi Watermark Teks Multi-Baris
-            const textTransforms = createTextWatermarkTransformations(textLines);
+           const textTransforms = createTextWatermarkTransformations(textLines);
             
+            // 💡 PERBAIKAN: Gunakan cloudinary.url() untuk merakit URL lengkap
             const transformUrl = cloudinary.url(publicId, {
-                width: 1280,
-                crop: "scale",
-                quality: 90,
-                flags: 'force_strip',
-                // Masukkan array transformasi teks yang sudah dibuat
-                transformation: textTransforms
+                // Semua transformasi utama
+                transformation: [
+                    { width: 1280, crop: "scale", quality: 90, flags: 'force_strip' },
+                    ...textTransforms // Gabungkan array teks transformasi
+                ]
+            });
+
+            // Ganti axios.get dengan konfigurasi yang lebih aman
+            const resp = await axios.get(transformUrl, { 
+                responseType: "arraybuffer",
+                timeout: 30000 // Beri timeout yang panjang, karena ini operasi berat
             });
             
-            const resp = await axios.get(transformUrl, { responseType: "arraybuffer" });
             finalBuf = Buffer.from(resp.data);
             
             // 🟢 Langkah 2: Gabungkan Logo (Jika ada) menggunakan Sharp
