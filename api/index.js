@@ -12,28 +12,28 @@ import multer from "multer";
 import dotenv from "dotenv";
 import { google } from "googleapis";
 import fetch from "node-fetch";
-import axios from "axios"; // 🔑 Tambahan penting
+import axios from "axios"; // ✅ WAJIB ditambah biar bisa download foto
 
 dotenv.config();
 
 const app = express();
 
-// 🔹 Konfigurasi Cloudinary (TETAP)
+// 🔹 Konfigurasi Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// 🔹 Konfigurasi Multer (TETAP)
+// 🔹 Konfigurasi Multer
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-// Middleware (TETAP)
+// Middleware
 app.use(bodyParser.json());
 app.use(cors());
 
-// ✅ Endpoint /upload-berkas (TETAP)
+// ✅ Endpoint /upload-berkas
 app.post("/upload-berkas", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
@@ -62,7 +62,7 @@ app.post("/upload-berkas", upload.single("file"), async (req, res) => {
   }
 });
 
-// ✅ Google Auth untuk FCM v1 (TETAP)
+// ✅ Google Auth untuk FCM v1
 const SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"];
 const auth = new google.auth.GoogleAuth({
   credentials: {
@@ -72,7 +72,7 @@ const auth = new google.auth.GoogleAuth({
   scopes: SCOPES,
 });
 
-// ✅ Endpoint kirim notifikasi (TETAP)
+// ✅ Endpoint kirim notifikasi
 app.post("/send-notif", async (req, res) => {
   const { token, title, body } = req.body;
 
@@ -117,7 +117,7 @@ app.post("/send-notif", async (req, res) => {
   }
 });
 
-// ✅ Hapus file di Cloudinary (TETAP)
+// ✅ Hapus file di Cloudinary
 app.post("/delete-berkas", async (req, res) => {
   try {
     const { fileUrl } = req.body;
@@ -144,7 +144,7 @@ app.post("/delete-berkas", async (req, res) => {
   }
 });
 
-// ==================== EXPORT LAPORAN BULANAN (REVISI) ====================
+// ==================== EXPORT LAPORAN BULANAN ====================
 app.get('/export-laporan-bulanan', async (req, res) => {
   try {
     const { bulan, tahun } = req.query;
@@ -173,51 +173,59 @@ app.get('/export-laporan-bulanan', async (req, res) => {
     const archive = archiver('zip', { zlib: { level: 9 } });
     archive.pipe(res);
 
+    let laporanIndex = 1;
     for (const doc of snapshot.docs) {
       const data = doc.data();
-      const namaFolder = (data.nama_pemohon || 'Laporan').replace(/[^a-z0-9]/gi, '_').substring(0, 50);
+      const namaPemohon = data.nama_pemohon || "TanpaNama";
       const fotoList = data.dokumentasi_foto || [];
 
-      for (const [i, fotoUrl] of fotoList.entries()) {
+      console.log(`📑 Proses laporan: ${namaPemohon}, Jumlah foto: ${fotoList.length}`);
+
+      for (let i = 0; i < fotoList.length; i++) {
+        const fotoUrl = fotoList[i];
         try {
-          const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
+          console.log("⬇️ Download foto:", fotoUrl);
+
+          const response = await axios.get(fotoUrl, { responseType: "arraybuffer" });
           const imageBuffer = Buffer.from(response.data);
 
-          const metadata = await sharp(imageBuffer).metadata();
-          const width = metadata.width || 1280;
-          const height = metadata.height || 720;
-
-          // Overlay teks per foto sesuai field Firestore
           const svgOverlay = `
-            <svg width="${width}" height="${height}">
-              <rect x="0" y="${height - 240}" width="${width}" height="240" fill="rgba(0,0,0,0.6)" />
-              <text x="30" y="${height - 200}" fill="yellow" font-size="40" font-weight="bold">Pemohon: ${data.nama_pemohon || '-'}</text>
-              <text x="30" y="${height - 160}" fill="white" font-size="36">Driver: ${data.nama_driver || '-'}</text>
-              <text x="30" y="${height - 120}" fill="white" font-size="36">Instansi: ${data.instansi_rujukan || '-'}</text>
-              <text x="30" y="${height - 80}" fill="white" font-size="36">Alamat: ${data.alamat_pemohon || '-'}</text>
-              <text x="30" y="${height - 40}" fill="white" font-size="36">Tanggal: ${data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleDateString("id-ID") : '-'}</text>
+            <svg width="1280" height="220">
+              <style>
+                .title { fill: white; font-size: 28px; font-weight: bold; font-family: Arial, sans-serif; }
+              </style>
+              <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.5)" />
+              <text x="20" y="40" class="title">Pemohon: ${data.nama_pemohon || '-'}</text>
+              <text x="20" y="80" class="title">Driver: ${data.nama_driver || '-'}</text>
+              <text x="20" y="120" class="title">Instansi: ${data.instansi_rujukan || '-'}</text>
+              <text x="20" y="160" class="title">Alamat: ${data.alamat_pemohon || '-'}</text>
+              <text x="20" y="200" class="title">Tanggal: ${data.tanggal_pengerjaan ? data.tanggal_pengerjaan.toDate().toLocaleDateString() : '-'}</text>
             </svg>
           `;
 
-          const processedImage = await sharp(imageBuffer)
-            .resize({ width: 1280 }) 
-            .composite([{ input: Buffer.from(svgOverlay), gravity: 'southwest' }])
+          const watermarked = await sharp(imageBuffer)
+            .resize({ width: 1280 })
+            .composite([{ input: Buffer.from(svgOverlay), gravity: "southwest" }])
             .jpeg({ quality: 90 })
             .toBuffer();
 
-          archive.append(processedImage, { name: `${namaFolder}/foto_${i + 1}.jpg` });
+          const fileName = `laporan${laporanIndex}_foto${i + 1}.jpg`;
+          console.log("✅ Tambah ke ZIP:", fileName);
+
+          archive.append(watermarked, { name: fileName });
         } catch (err) {
-          console.error(`Gagal proses foto: ${fotoUrl}`, err);
+          console.error("❌ Gagal proses foto:", fotoUrl, err.message);
         }
       }
+      laporanIndex++;
     }
 
     await archive.finalize();
   } catch (error) {
-    console.error('Error ekspor laporan bulanan:', error);
+    console.error('❌ Error ekspor laporan bulanan:', error);
     res.status(500).send('Terjadi kesalahan server');
   }
 });
 
-// ✅ Vercel: jangan pakai app.listen (TETAP)
+// ✅ Vercel: jangan pakai app.listen
 export default app;
